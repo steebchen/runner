@@ -19,8 +19,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
 const workspaces = [
-  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: 2, title: "Add API rate limiting" },
-  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: 1, title: "" },
+  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null },
+  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null },
+];
+const archived: any[] = [
+  { id: "w9", repoId: "r1", name: "oslo", branch: "runner/oslo", baseBranch: "main", path: "/tmp/oslo", status: "archived", createdAt: Date.now() - 9 * 86400e3, title: "Migrate to Postgres 17", archivedAt: Date.now() - 2 * 86400e3 },
 ];
 const sessions: Record<string, any[]> = {
   w1: [{ id: "s1", workspaceId: "w1", agentId: "claude", acpSessionId: "a1", title: "Add rate limiting to the API", createdAt: 1 }],
@@ -95,6 +98,23 @@ const handlers: Record<string, (a: any) => any> = {
   ],
   list_repos: () => [repo],
   list_workspaces: () => workspaces.map((w) => ({ ...w })),
+  list_all_workspaces: () => [...workspaces, ...archived].map((w) => ({ ...w })),
+  archive_workspace: async (a) => {
+    await sleep(500);
+    const i = workspaces.findIndex((w) => w.id === a.workspaceId);
+    if (i >= 0) archived.unshift({ ...workspaces.splice(i, 1)[0], status: "archived", archivedAt: Date.now() });
+  },
+  restore_workspace: (a) => {
+    const i = archived.findIndex((w) => w.id === a.workspaceId);
+    const ws = { ...archived.splice(i, 1)[0], status: "creating", archivedAt: null };
+    workspaces.unshift(ws);
+    sessions[ws.id] ??= [];
+    setTimeout(() => {
+      ws.status = "ready";
+      emit({ type: "workspaceStatus", workspaceId: ws.id, status: "ready" });
+    }, 1500);
+    return { ...ws };
+  },
   list_sessions: (a) => sessions[a.workspaceId] ?? [],
   session_events: (a) => sessionHistory(a.sessionId),
   get_settings: () => settings,
@@ -121,7 +141,7 @@ const handlers: Record<string, (a: any) => any> = {
   },
   create_workspace: (a) => {
     const n = workspaces.length + 1;
-    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "" };
+    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "", archivedAt: null };
     workspaces.unshift(ws);
     sessions[ws.id] = [];
     setTimeout(() => {

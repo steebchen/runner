@@ -1,6 +1,6 @@
 import { memo } from "react";
 import clsx from "clsx";
-import { FolderPlus, GitBranch, Loader2, Plus, Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { FolderPlus, GitBranch, House, Loader2, Plus, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, useStore, workspaceActivity } from "../lib/store";
@@ -22,6 +22,9 @@ export function Sidebar() {
           <FolderPlus size={15} />
         </button>
       </div>
+      <div className="px-2 pb-2">
+        <HomeButton />
+      </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {repos.map((r) => (
           <RepoGroup key={r.id} repo={r} />
@@ -37,6 +40,24 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+function HomeButton() {
+  const active = useStore((s) => s.page === "home");
+  const count = useStore((s) => s.workspaces.length);
+  return (
+    <button
+      onClick={() => actions.openHome()}
+      className={clsx(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
+        active ? "bg-hover font-medium text-fg" : "text-fg/90 hover:bg-hover/60",
+      )}
+    >
+      <House size={14} className="shrink-0 text-muted" />
+      <span className="flex-1">Home</span>
+      <span className="text-[11px] text-faint">{count}</span>
+    </button>
   );
 }
 
@@ -74,7 +95,7 @@ function RepoGroup({ repo }: { repo: Repo }) {
 }
 
 const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; index: number }) {
-  const selected = useStore((s) => s.selectedWorkspace === ws.id);
+  const selected = useStore((s) => s.page === "workspace" && s.selectedWorkspace === ws.id);
   const activity = useStore((s) => workspaceActivity(s, ws.id));
   const sessionTitle = useStore((s) => (s.sessions[ws.id] ?? []).find((x) => x.title)?.title ?? "");
   const title = ws.title || sessionTitle;

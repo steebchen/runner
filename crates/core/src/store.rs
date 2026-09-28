@@ -29,6 +29,7 @@ pub struct Workspace {
     pub created_at: i64,
     /// Short summary of the task, generated from the first prompt.
     pub title: String,
+    pub archived_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,7 +69,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     path TEXT NOT NULL,
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
-    title TEXT NOT NULL DEFAULT ''
+    title TEXT NOT NULL DEFAULT '',
+    archived_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -198,7 +200,7 @@ impl Store {
 
     pub fn workspace(&self, id: &str) -> Result<Workspace> {
         Ok(self.conn.lock().query_row(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title FROM workspaces WHERE id = ?1",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces WHERE id = ?1",
             [id],
             row_to_workspace,
         )?)
@@ -207,10 +209,27 @@ impl Store {
     pub fn workspaces(&self) -> Result<Vec<Workspace>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], row_to_workspace)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every workspace including archived ones, most recent activity first.
+    pub fn all_workspaces(&self) -> Result<Vec<Workspace>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces ORDER BY COALESCE(archived_at, created_at) DESC",
+        )?;
+        let rows = stmt.query_map([], row_to_workspace)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn set_archived_at(&self, id: &str, at: Option<i64>) -> Result<()> {
+        self.conn
+            .lock()
+            .execute("UPDATE workspaces SET archived_at = ?2 WHERE id = ?1", params![id, at])?;
+        Ok(())
     }
 
     pub fn workspace_names(&self, repo_id: &str) -> Result<Vec<String>> {
@@ -289,12 +308,17 @@ impl Store {
 
 /// Additive migrations for databases created by older versions.
 fn migrate(conn: &Connection) -> Result<()> {
-    let has_title = conn
-        .prepare("SELECT 1 FROM pragma_table_info('workspaces') WHERE name = 'title'")?
-        .exists([])?;
-    if !has_title {
-        conn.execute("ALTER TABLE workspaces ADD COLUMN title TEXT NOT NULL DEFAULT ''", [])?;
-    }
+    let add_column = |table: &str, column: &str, ddl: &str| -> Result<()> {
+        let exists = conn
+            .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?
+            .exists([column])?;
+        if !exists {
+            conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {ddl}"), [])?;
+        }
+        Ok(())
+    };
+    add_column("workspaces", "title", "TEXT NOT NULL DEFAULT ''")?;
+    add_column("workspaces", "archived_at", "INTEGER")?;
     Ok(())
 }
 
@@ -372,6 +396,7 @@ fn row_to_workspace(r: &rusqlite::Row) -> rusqlite::Result<Workspace> {
         status: r.get(6)?,
         created_at: r.get(7)?,
         title: r.get(8)?,
+        archived_at: r.get(9)?,
     })
 }
 

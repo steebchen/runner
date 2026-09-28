@@ -25,7 +25,8 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/title.rs            Quick heuristic titles + Haiku summaries via `claude -p`
   src/workspace.rs        runner.json config, workspace naming
   src/env.rs              Login-shell env capture (GUI apps lack the user's PATH)
-  src/lib.rs              `Core`: the API the app calls
+  src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
+                          create -> archive (worktree removed, branch kept) -> restore)
   tests/                  Integration tests with a scripted fake ACP agent
   examples/               detect.rs, e2e.rs (real agents), title.rs
 apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel
@@ -33,8 +34,9 @@ apps/desktop/src/         React 19 UI
   lib/api.ts              Typed wrappers for every Tauri command + event types
   lib/store.ts            zustand store; handleEvents folds core events per frame
   lib/transcript.ts       Pure reducer: ACP updates -> transcript items
-  components/             Sidebar, WorkspaceView, Chat, ChangesPanel,
-                          TerminalPanel, PrActions, Settings, ...
+  components/             Sidebar, Home (all workspaces, archive/restore),
+                          WorkspaceView, Chat, ChangesPanel, TerminalPanel,
+                          PrActions, Settings, ...
   dev/mock.ts             Fake backend for running the UI in a plain browser
 ```
 

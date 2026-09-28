@@ -137,16 +137,22 @@ impl Core {
             status: "creating".into(),
             created_at: now(),
             title: String::new(),
+            archived_at: None,
         };
         self.store.add_workspace(&ws)?;
 
         // Fetching and checking out can take a while on big repos; return right
         // away and let the UI show progress via WorkspaceStatus events.
+        self.spawn_worktree_setup(ws.clone(), repo, true);
+        Ok(ws)
+    }
+
+    /// Create (or re-create) the worktree in the background, then run setup.
+    fn spawn_worktree_setup(self: &Arc<Self>, ws: Workspace, repo: Repo, new_branch: bool) {
         let this = self.clone();
-        let ws_bg = ws.clone();
         tokio::spawn(async move {
-            let ws = ws_bg;
-            let status = match this.prepare_worktree(&ws, &repo_path).await {
+            let repo_path = PathBuf::from(&repo.path);
+            let status = match this.prepare_worktree(&ws, &repo_path, new_branch).await {
                 Ok(Some(setup)) => {
                     this.set_status(&ws.id, "setting_up");
                     let ok = this.run_script(&ws, &repo.path, &setup).await;
@@ -163,6 +169,27 @@ impl Core {
             };
             this.set_status(&ws.id, status);
         });
+    }
+
+    /// Bring an archived workspace back: check its branch out into a fresh
+    /// worktree. Chat history is kept, so sessions can continue.
+    pub async fn restore_workspace(self: &Arc<Self>, workspace_id: &str) -> Result<Workspace> {
+        let mut ws = self.store.workspace(workspace_id)?;
+        if ws.status != "archived" {
+            bail!("workspace is not archived");
+        }
+        let repo = self.store.repo(&ws.repo_id)?;
+        if !git::branch_exists(Path::new(&repo.path), &ws.branch).await {
+            bail!("branch `{}` no longer exists, so this workspace can't be restored", ws.branch);
+        }
+        if Path::new(&ws.path).exists() {
+            bail!("{} already exists; move it away and try again", ws.path);
+        }
+        self.store.set_workspace_status(&ws.id, "creating")?;
+        self.store.set_archived_at(&ws.id, None)?;
+        ws.status = "creating".into();
+        ws.archived_at = None;
+        self.spawn_worktree_setup(ws.clone(), repo, false);
         Ok(ws)
     }
 
@@ -172,10 +199,14 @@ impl Core {
     }
 
     /// Create the worktree and copy configured files. Returns the setup script, if any.
-    async fn prepare_worktree(&self, ws: &Workspace, repo_path: &Path) -> Result<Option<String>> {
+    async fn prepare_worktree(&self, ws: &Workspace, repo_path: &Path, new_branch: bool) -> Result<Option<String>> {
         let path = PathBuf::from(&ws.path);
         tokio::fs::create_dir_all(path.parent().unwrap()).await?;
-        git::create_worktree(repo_path, &path, &ws.branch, &ws.base_branch).await?;
+        if new_branch {
+            git::create_worktree(repo_path, &path, &ws.branch, &ws.base_branch).await?;
+        } else {
+            git::add_worktree(repo_path, &path, &ws.branch).await?;
+        }
         let config = load_config(&path);
         for file in &config.copy {
             let (from, to) = (repo_path.join(file), path.join(file));
@@ -245,6 +276,7 @@ impl Core {
             git::remove_worktree(Path::new(&repo.path), Path::new(&ws.path)).await?;
         }
         self.store.set_workspace_status(&ws.id, "archived")?;
+        self.store.set_archived_at(&ws.id, Some(now()))?;
         Ok(())
     }
 

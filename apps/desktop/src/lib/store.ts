@@ -46,7 +46,7 @@ type State = {
   drafts: Record<string, string>;
   settings: Settings | null;
   agentStatus: AgentStatus[] | null;
-  page: "workspace" | "settings";
+  page: "workspace" | "settings" | "home";
 };
 
 export const useStore = create<State>(() => ({
@@ -215,12 +215,13 @@ export const actions = {
 
   async archiveWorkspace(workspaceId: string) {
     const ok = await guard(api.archiveWorkspace(workspaceId).then(() => true));
-    if (!ok) return;
+    if (!ok) return false;
     const workspaces = get().workspaces.filter((w) => w.id !== workspaceId);
     set({
       workspaces,
       selectedWorkspace: get().selectedWorkspace === workspaceId ? (workspaces[0]?.id ?? null) : get().selectedWorkspace,
     });
+    return true;
   },
 
   async saveSettings(patch: Partial<Settings>) {
@@ -239,6 +240,26 @@ export const actions = {
 
   openSettings(open = true) {
     set({ page: open ? "settings" : "workspace" });
+  },
+
+  openHome() {
+    set({ page: "home" });
+  },
+
+  async restoreWorkspace(workspaceId: string) {
+    const ws = await guard(api.restoreWorkspace(workspaceId));
+    if (!ws) return;
+    const sessions = (await guard(api.listSessions(ws.id))) ?? [];
+    const s = get();
+    const views = { ...s.views };
+    for (const x of sessions) views[x.id] ??= newView(false);
+    set({
+      workspaces: [ws, ...s.workspaces.filter((w) => w.id !== ws.id)],
+      sessions: { ...s.sessions, [ws.id]: sessions },
+      views,
+      selectedSession: sessions.length ? { ...s.selectedSession, [ws.id]: sessions[sessions.length - 1].id } : s.selectedSession,
+    });
+    return ws;
   },
 
   selectWorkspace(workspaceId: string) {

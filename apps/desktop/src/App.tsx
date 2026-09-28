@@ -7,6 +7,7 @@ import { Sidebar } from "./components/Sidebar";
 import { WorkspaceView } from "./components/WorkspaceView";
 import { Toast } from "./components/Toast";
 import { AgentSetup, Settings } from "./components/Settings";
+import { Home } from "./components/Home";
 
 export async function pickRepo() {
   const path = await open({ directory: true, title: "Choose a git repository" });
@@ -66,6 +67,8 @@ export function App() {
       <main className="flex min-w-0 flex-1 flex-col">
         {page === "settings" ? (
           <Settings />
+        ) : page === "home" ? (
+          <Home />
         ) : selected ? (
           <WorkspaceView key={selected} workspaceId={selected} />
         ) : (

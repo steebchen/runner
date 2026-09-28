@@ -13,6 +13,7 @@ export type Workspace = {
   status: string;
   createdAt: number;
   title: string;
+  archivedAt: number | null;
 };
 
 export type Session = {
@@ -102,6 +103,8 @@ export const api = {
   removeRepo: (repoId: string) => invoke<void>("remove_repo", { repoId }),
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
   createWorkspace: (repoId: string) => invoke<Workspace>("create_workspace", { repoId }),
+  listAllWorkspaces: () => invoke<Workspace[]>("list_all_workspaces"),
+  restoreWorkspace: (workspaceId: string) => invoke<Workspace>("restore_workspace", { workspaceId }),
   archiveWorkspace: (workspaceId: string) => invoke<void>("archive_workspace", { workspaceId }),
   repoConfig: (workspaceId: string) =>
     invoke<{ scripts: { setup?: string; run?: string; archive?: string }; copy: string[] }>("repo_config", { workspaceId }),

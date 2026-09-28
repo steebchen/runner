@@ -84,6 +84,16 @@ async fn create_workspace(app: State<'_, App>, repo_id: String) -> Res<Workspace
 }
 
 #[tauri::command]
+fn list_all_workspaces(app: State<'_, App>) -> Res<Vec<Workspace>> {
+    app.core.store.all_workspaces().map_err(err)
+}
+
+#[tauri::command]
+async fn restore_workspace(app: State<'_, App>, workspace_id: String) -> Res<Workspace> {
+    app.core.restore_workspace(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
 async fn archive_workspace(app: State<'_, App>, workspace_id: String) -> Res<()> {
     app.core.archive_workspace(&workspace_id).await.map_err(err)
 }
@@ -309,6 +319,8 @@ pub fn run() {
             list_workspaces,
             create_workspace,
             archive_workspace,
+            list_all_workspaces,
+            restore_workspace,
             repo_config,
             list_sessions,
             create_session,

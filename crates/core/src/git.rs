@@ -70,6 +70,17 @@ pub async fn create_worktree(repo: &Path, path: &Path, branch: &str, base_branch
     Ok(())
 }
 
+pub async fn branch_exists(repo: &Path, branch: &str) -> bool {
+    git_ok(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await
+}
+
+/// Check out an existing branch into a new worktree (used to restore archived workspaces).
+pub async fn add_worktree(repo: &Path, path: &Path, branch: &str) -> Result<()> {
+    let _ = git(repo, &["worktree", "prune"]).await;
+    git(repo, &["worktree", "add", &path.to_string_lossy(), branch]).await?;
+    Ok(())
+}
+
 pub async fn remove_worktree(repo: &Path, path: &Path) -> Result<()> {
     git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]).await?;
     Ok(())

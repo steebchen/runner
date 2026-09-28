@@ -47,6 +47,7 @@ async fn prompt_permission_config_and_resume() {
             status: "ready".into(),
             created_at: 0,
             title: String::new(),
+            archived_at: None,
         })
         .unwrap();
 
