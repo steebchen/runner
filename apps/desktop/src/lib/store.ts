@@ -1,0 +1,331 @@
+import { create } from "zustand";
+import { api, type AgentDef, type AgentStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
+import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
+
+export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
+
+export type SessionView = {
+  transcript: Transcript;
+  state: "disconnected" | "connecting" | "idle" | "running" | "error";
+  error: string | null;
+  config: ConfigOption[];
+  permissions: Permission[];
+  /** history loaded from disk (or session created in this run) */
+  loaded: boolean;
+  /** finished a turn while not being looked at */
+  unread: boolean;
+};
+
+const newView = (loaded: boolean): SessionView => ({
+  transcript: emptyTranscript(),
+  state: "disconnected",
+  error: null,
+  config: [],
+  permissions: [],
+  loaded,
+  unread: false,
+});
+
+type State = {
+  ready: boolean;
+  agents: AgentDef[];
+  repos: Repo[];
+  workspaces: Workspace[];
+  sessions: Record<string, Session[]>;
+  views: Record<string, SessionView>;
+  selectedWorkspace: string | null;
+  selectedSession: Record<string, string>;
+  scriptLog: Record<string, string>;
+  /** bumped whenever a workspace's files may have changed */
+  changesTick: Record<string, number>;
+  toast: { text: string; kind: "error" | "info" } | null;
+  /** unsent composer text per session */
+  drafts: Record<string, string>;
+  settings: Settings | null;
+  agentStatus: AgentStatus[] | null;
+  page: "workspace" | "settings";
+};
+
+export const useStore = create<State>(() => ({
+  ready: false,
+  agents: [],
+  repos: [],
+  workspaces: [],
+  sessions: {},
+  views: {},
+  selectedWorkspace: null,
+  selectedSession: {},
+  scriptLog: {},
+  changesTick: {},
+  toast: null,
+  drafts: {},
+  settings: null,
+  agentStatus: null,
+  page: "workspace",
+}));
+
+const set = useStore.setState;
+const get = useStore.getState;
+
+export function toast(text: string, kind: "error" | "info" = "error") {
+  set({ toast: { text, kind } });
+  setTimeout(() => {
+    if (get().toast?.text === text) set({ toast: null });
+  }, 5000);
+}
+
+async function guard<T>(p: Promise<T>): Promise<T | undefined> {
+  try {
+    return await p;
+  } catch (e) {
+    toast(String(e));
+    return undefined;
+  }
+}
+
+function handleEvents(events: CoreEvent[]) {
+  const s = get();
+  const views = { ...s.views };
+  let scriptLog = s.scriptLog;
+  let changesTick = s.changesTick;
+  let sessions = s.sessions;
+  const bySession = new Map<string, CoreEvent[]>();
+
+  for (const e of events) {
+    if (e.type === "scriptOutput") {
+      if (scriptLog === s.scriptLog) scriptLog = { ...scriptLog };
+      scriptLog[e.workspaceId] = (scriptLog[e.workspaceId] ?? "") + e.data;
+      continue;
+    }
+    if (e.type === "workspaceStatus") {
+      if (changesTick === s.changesTick) changesTick = { ...changesTick };
+      changesTick[e.workspaceId] = (changesTick[e.workspaceId] ?? 0) + 1;
+      if (e.status !== "dirty") {
+        set({ workspaces: get().workspaces.map((w) => (w.id === e.workspaceId ? { ...w, status: e.status } : w)) });
+      }
+      continue;
+    }
+    let list = bySession.get(e.sessionId);
+    if (!list) bySession.set(e.sessionId, (list = []));
+    list.push(e);
+  }
+
+  for (const [sessionId, list] of bySession) {
+    let v = { ...(views[sessionId] ?? newView(true)) };
+    for (const e of list) {
+      switch (e.type) {
+        case "sessionState":
+          v.state = e.state as SessionView["state"];
+          v.error = e.error;
+          break;
+        case "sessionConfig":
+          v.config = e.configOptions;
+          break;
+        case "sessionTitle":
+          sessions = Object.fromEntries(
+            Object.entries(sessions).map(([ws, l]) => [ws, l.map((x) => (x.id === sessionId ? { ...x, title: e.title } : x))]),
+          );
+          break;
+        case "permissionRequest":
+          v.permissions = [...v.permissions, { requestId: e.requestId, toolCall: e.toolCall, options: e.options }];
+          break;
+        case "permissionResolved":
+          v.permissions = v.permissions.filter((p) => p.requestId !== e.requestId);
+          break;
+        case "sessionUpdate":
+          if (e.update.sessionUpdate === "current_mode_update") {
+            v.config = v.config.map((c) => (c.id === "mode" || c.category === "mode" ? { ...c, currentValue: e.update.currentModeId } : c));
+          }
+          break;
+      }
+    }
+    // Transcript events, including the ones handled above that also render.
+    v.transcript = applyEvents(v.transcript, list);
+    if (list.some((e) => e.type === "turnEnd") && !isVisible(sessionId)) v.unread = true;
+    views[sessionId] = v;
+  }
+  set({ views, scriptLog, changesTick, sessions });
+}
+
+function isVisible(sessionId: string) {
+  const s = get();
+  const ws = s.selectedWorkspace;
+  return !!ws && s.selectedSession[ws] === sessionId && document.hasFocus();
+}
+
+export const actions = {
+  setDraft(sessionId: string, text: string) {
+    set({ drafts: { ...get().drafts, [sessionId]: text } });
+  },
+
+  appendDraft(sessionId: string, text: string) {
+    const cur = get().drafts[sessionId]?.trimEnd();
+    actions.setDraft(sessionId, cur ? `${cur}\n\n${text}` : text);
+  },
+
+  async init() {
+    await api.subscribe(handleEvents);
+    const [agents, repos, workspaces, settings] = await Promise.all([api.listAgents(), api.listRepos(), api.listWorkspaces(), api.getSettings()]);
+    applyTheme(settings.theme);
+    void actions.detectAgents();
+    const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
+    const sessions: Record<string, Session[]> = {};
+    const selectedSession: Record<string, string> = {};
+    workspaces.forEach((w, i) => {
+      sessions[w.id] = lists[i];
+      if (lists[i].length) selectedSession[w.id] = lists[i][lists[i].length - 1].id;
+    });
+    const views: Record<string, SessionView> = {};
+    for (const l of lists) for (const x of l) views[x.id] = newView(false);
+    set({ ready: true, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
+  },
+
+  async addRepo(path: string) {
+    const repo = await guard(api.addRepo(path));
+    if (!repo) return;
+    if (!get().repos.some((r) => r.id === repo.id)) set({ repos: [...get().repos, repo].sort((a, b) => a.name.localeCompare(b.name)) });
+    await actions.createWorkspace(repo.id);
+  },
+
+  async removeRepo(repoId: string) {
+    if (get().workspaces.some((w) => w.repoId === repoId)) {
+      toast("Archive this repository's workspaces first");
+      return;
+    }
+    await guard(api.removeRepo(repoId));
+    set({ repos: get().repos.filter((r) => r.id !== repoId) });
+  },
+
+  async createWorkspace(repoId: string) {
+    const ws = await guard(api.createWorkspace(repoId));
+    if (!ws) return;
+    set({ workspaces: [ws, ...get().workspaces], sessions: { ...get().sessions, [ws.id]: [] }, selectedWorkspace: ws.id });
+    await actions.createSession(ws.id, get().settings?.defaultAgent ?? "claude");
+  },
+
+  async archiveWorkspace(workspaceId: string) {
+    const ok = await guard(api.archiveWorkspace(workspaceId).then(() => true));
+    if (!ok) return;
+    const workspaces = get().workspaces.filter((w) => w.id !== workspaceId);
+    set({
+      workspaces,
+      selectedWorkspace: get().selectedWorkspace === workspaceId ? (workspaces[0]?.id ?? null) : get().selectedWorkspace,
+    });
+  },
+
+  async saveSettings(patch: Partial<Settings>) {
+    const cur = get().settings;
+    if (!cur) return;
+    const settings = { ...cur, ...patch };
+    set({ settings });
+    applyTheme(settings.theme);
+    await guard(api.saveSettings(settings));
+  },
+
+  async detectAgents() {
+    const agentStatus = await guard(api.detectAgents());
+    if (agentStatus) set({ agentStatus });
+  },
+
+  openSettings(open = true) {
+    set({ page: open ? "settings" : "workspace" });
+  },
+
+  selectWorkspace(workspaceId: string) {
+    set({ selectedWorkspace: workspaceId, page: "workspace" });
+    const sid = get().selectedSession[workspaceId];
+    if (sid) actions.selectSession(workspaceId, sid);
+  },
+
+  async createSession(workspaceId: string, agentId: string) {
+    const session = await guard(api.createSession(workspaceId, agentId));
+    if (!session) return;
+    const s = get();
+    set({
+      sessions: { ...s.sessions, [workspaceId]: [...(s.sessions[workspaceId] ?? []), session] },
+      views: { ...s.views, [session.id]: { ...newView(true), ...s.views[session.id], state: "connecting" } },
+      selectedSession: { ...s.selectedSession, [workspaceId]: session.id },
+    });
+  },
+
+  async closeSession(workspaceId: string, sessionId: string) {
+    await guard(api.deleteSession(sessionId));
+    const s = get();
+    const list = (s.sessions[workspaceId] ?? []).filter((x) => x.id !== sessionId);
+    const selectedSession = { ...s.selectedSession };
+    if (selectedSession[workspaceId] === sessionId) {
+      if (list.length) selectedSession[workspaceId] = list[list.length - 1].id;
+      else delete selectedSession[workspaceId];
+    }
+    set({ sessions: { ...s.sessions, [workspaceId]: list }, selectedSession });
+  },
+
+  selectSession(workspaceId: string, sessionId: string) {
+    const s = get();
+    const v = s.views[sessionId];
+    set({
+      selectedSession: { ...s.selectedSession, [workspaceId]: sessionId },
+      views: v?.unread ? { ...s.views, [sessionId]: { ...v, unread: false } } : s.views,
+    });
+    if (v && !v.loaded) void actions.loadHistory(sessionId);
+  },
+
+  async loadHistory(sessionId: string) {
+    const events = await guard(api.sessionEvents(sessionId));
+    if (!events) return;
+    const v = get().views[sessionId] ?? newView(false);
+    // Sessions from earlier runs only receive live events after the user
+    // prompts them, which requires the history to be shown first.
+    const transcript = applyEvents(emptyTranscript(), events);
+    set({ views: { ...get().views, [sessionId]: { ...v, transcript, loaded: true } } });
+  },
+
+  async send(sessionId: string, text: string) {
+    await guard(api.sendPrompt(sessionId, text));
+  },
+
+  async cancel(sessionId: string) {
+    await guard(api.cancelPrompt(sessionId));
+  },
+
+  async respondPermission(sessionId: string, requestId: string, optionId: string | null) {
+    await guard(api.respondPermission(sessionId, requestId, optionId));
+  },
+
+  async setConfig(sessionId: string, configId: string, value: string | boolean) {
+    const s = get();
+    const v = s.views[sessionId];
+    if (v) {
+      const config = v.config.map((c) => (c.id === configId ? { ...c, currentValue: value } : c));
+      set({ views: { ...s.views, [sessionId]: { ...v, config } } });
+    }
+    await guard(api.setConfig(sessionId, configId, value));
+  },
+};
+
+/** Aggregate status for sidebar dots. */
+export function workspaceActivity(s: State, workspaceId: string): "needs-input" | "running" | "error" | "unread" | "idle" {
+  const list = s.sessions[workspaceId] ?? [];
+  let result: ReturnType<typeof workspaceActivity> = "idle";
+  for (const x of list) {
+    const v = s.views[x.id];
+    if (!v) continue;
+    if (v.permissions.length) return "needs-input";
+    if (v.state === "running") result = "running";
+    else if (v.state === "error" && result === "idle") result = "error";
+    else if (v.unread && result === "idle") result = "unread";
+  }
+  return result;
+}
+
+export function applyTheme(theme: Settings["theme"]) {
+  if (theme === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
+  window.dispatchEvent(new Event("runner-theme"));
+}
+
+/** Agents shown in "new chat" menus. */
+export function enabledAgents(s: State) {
+  const enabled = s.settings?.enabledAgents;
+  return enabled ? s.agents.filter((a) => enabled.includes(a.id)) : s.agents;
+}

@@ -1,0 +1,151 @@
+// Dev-only fake backend so the UI can run in a plain browser (`pnpm dev`,
+// then open http://localhost:1420). Never bundled into the Tauri build.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+type Channel = { id: number };
+const callbacks = new Map<number, (data: any) => void>();
+const channelIndex = new Map<number, number>();
+let nextCb = 1;
+
+function send(ch: Channel, message: any) {
+  const index = channelIndex.get(ch.id) ?? 0;
+  channelIndex.set(ch.id, index + 1);
+  callbacks.get(ch.id)?.({ index, message });
+}
+
+let events: Channel | null = null;
+const emit = (...batch: any[]) => events && send(events, batch);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
+const workspaces = [
+  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: 2 },
+  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: 1 },
+];
+const sessions: Record<string, any[]> = {
+  w1: [{ id: "s1", workspaceId: "w1", agentId: "claude", acpSessionId: "a1", title: "Add rate limiting to the API", createdAt: 1 }],
+  w2: [{ id: "s2", workspaceId: "w2", agentId: "codex", acpSessionId: "a2", title: "Fix flaky checkout test", createdAt: 1 }],
+};
+let settings = {
+  enabledAgents: ["claude", "codex", "opencode"],
+  defaultAgent: "claude",
+  branchPrefix: "runner/",
+  workspacesRoot: "/Users/dev/runner/workspaces",
+  editor: "Visual Studio Code",
+  theme: "system",
+};
+const config = [
+  { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Manual" }, { value: "acceptEdits", name: "Accept edits" }, { value: "plan", name: "Plan" }] },
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: "opus", options: [{ value: "opus", name: "Opus 5.5" }, { value: "sonnet", name: "Sonnet 5" }] },
+];
+
+const sessionHistory = (sid: string) => [
+  { type: "userMessage", sessionId: sid, text: "Add rate limiting to the public API endpoints", ts: 0 },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "I'll look at how the API routes are set up first." } } },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read src/server/routes.ts", kind: "read", status: "completed" } },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "plan", entries: [{ content: "Add a token bucket limiter", priority: "high", status: "completed" }, { content: "Wire it into public routes", priority: "high", status: "completed" }, { content: "Add tests", priority: "medium", status: "in_progress" }] } },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit src/server/limiter.ts", kind: "edit", status: "completed", content: [{ type: "diff", path: "src/server/limiter.ts", oldText: "export const limits = {};\n", newText: "export const limits = {\n  public: { rate: 60, burst: 20 },\n};\n" }] } },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "agent_message_chunk", messageId: "m2", content: { type: "text", text: "Done. Public routes now go through a **token bucket** limiter:\n\n- `60` requests/minute with a burst of `20`\n- returns `429` with a `Retry-After` header\n\n```ts\napp.use('/api/public', rateLimit(limits.public));\n```" } } },
+  { type: "turnEnd", sessionId: sid, stopReason: "end_turn", ts: 0 },
+];
+
+const patch = `diff --git a/src/server/limiter.ts b/src/server/limiter.ts
+--- a/src/server/limiter.ts
++++ b/src/server/limiter.ts
+@@ -1,3 +1,14 @@
+ import type { Request } from "express";
+-export const limits = {};
++export const limits = {
++  public: { rate: 60, burst: 20 },
++};
++
++export function rateLimit(opts: { rate: number; burst: number }) {
++  const buckets = new Map<string, number>();
++  return (req: Request, res: any, next: () => void) => {
++    const key = req.ip ?? "anon";
++    buckets.set(key, (buckets.get(key) ?? opts.burst) - 1);
++    next();
++  };
++}
+ export default limits;`;
+
+async function streamReply(sessionId: string, text: string) {
+  emit({ type: "userMessage", sessionId, text, ts: Date.now() }, { type: "sessionState", sessionId, state: "running", error: null });
+  await sleep(300);
+  emit({ type: "sessionUpdate", sessionId, update: { sessionUpdate: "tool_call", toolCallId: `x${Date.now()}`, title: "Run pnpm test", kind: "execute", status: "in_progress" } });
+  const words = "Sure — I'll handle that. First I'll check the existing tests, then make the change and run the suite again to confirm everything passes.".split(" ");
+  for (const w of words) {
+    await sleep(40);
+    emit({ type: "sessionUpdate", sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: "live", content: { type: "text", text: w + " " } } });
+  }
+  emit({ type: "permissionRequest", sessionId, requestId: "p1", toolCall: { title: "Write src/server/limiter.test.ts" }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "always", name: "Always allow", kind: "allow_always" }, { optionId: "reject", name: "Reject", kind: "reject_once" }] });
+}
+
+const handlers: Record<string, (a: any) => any> = {
+  subscribe: (a) => {
+    events = a.channel;
+    setTimeout(() => emit({ type: "sessionConfig", sessionId: "s1", configOptions: config }, { type: "sessionState", sessionId: "s1", state: "idle", error: null }), 50);
+  },
+  list_agents: () => [
+    { id: "claude", name: "Claude Code", command: "", args: [] },
+    { id: "codex", name: "Codex", command: "", args: [] },
+    { id: "opencode", name: "OpenCode", command: "", args: [] },
+  ],
+  list_repos: () => [repo],
+  list_workspaces: () => workspaces,
+  list_sessions: (a) => sessions[a.workspaceId] ?? [],
+  session_events: (a) => sessionHistory(a.sessionId),
+  get_settings: () => settings,
+  save_settings: (a) => void (settings = a.settings),
+  detect_agents: async () => {
+    await sleep(400);
+    return [
+      { id: "claude", name: "Claude Code", installed: true, version: "2.1.284", loggedIn: true, account: "dev@example.com · max", installCommand: "curl -fsSL https://claude.ai/install.sh | bash", loginCommand: "claude auth login", logoutCommand: "claude auth logout" },
+      { id: "codex", name: "Codex", installed: true, version: "0.140.0", loggedIn: false, account: null, installCommand: "npm install -g @openai/codex", loginCommand: "codex login", logoutCommand: "codex logout" },
+      { id: "opencode", name: "OpenCode", installed: false, version: null, loggedIn: false, account: null, installCommand: "curl -fsSL https://opencode.ai/install | bash", loginCommand: "opencode auth login", logoutCommand: "opencode auth logout" },
+    ];
+  },
+  send_prompt: (a) => void streamReply(a.sessionId, a.text),
+  respond_permission: (a) => {
+    emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: 0 }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
+  },
+  cancel_prompt: () => {},
+  set_config: () => {},
+  changed_files: () => [
+    { path: "src/server/limiter.ts", status: "M", additions: 12, deletions: 1 },
+    { path: "src/server/limiter.test.ts", status: "A", additions: 34, deletions: 0 },
+  ],
+  file_diff: () => patch,
+  pr_status: () => null,
+  repo_config: () => ({ scripts: { run: "pnpm dev" }, copy: [] }),
+  terminal_open: (a) => {
+    setTimeout(() => send(a.onData, new TextEncoder().encode("\x1b[32m➜\x1b[0m tokyo git:(runner/tokyo) ").buffer), 50);
+  },
+  setup_terminal_open: (a) => {
+    setTimeout(() => send(a.onData, new TextEncoder().encode("Opening browser to sign in…\r\n").buffer), 100);
+  },
+  terminal_write: () => {},
+  terminal_resize: () => {},
+  terminal_kill: () => {},
+};
+
+(window as any).__TAURI_INTERNALS__ = {
+  transformCallback(cb: (d: any) => void) {
+    const id = nextCb++;
+    callbacks.set(id, cb);
+    return id;
+  },
+  unregisterCallback(id: number) {
+    callbacks.delete(id);
+  },
+  async invoke(cmd: string, args: any) {
+    const h = handlers[cmd];
+    if (!h) {
+      console.warn("[mock] unhandled", cmd, args);
+      return null;
+    }
+    return h(args ?? {});
+  },
+  metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+};
+export {};
