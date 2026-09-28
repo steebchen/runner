@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowUp, Brain, ChevronRight, Circle, CircleCheck, CircleDot, ShieldQuestion, Square } from "lucide-react";
+import { ArrowUp, Brain, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, ListChecks, ShieldQuestion, Square, Zap } from "lucide-react";
 import { actions, useStore, type Permission } from "../lib/store";
 import type { Item } from "../lib/transcript";
 import type { ConfigOption, SelectOption } from "../lib/api";
@@ -179,6 +179,9 @@ function Composer({ sessionId }: { sessionId: string }) {
   const state = useStore((s) => s.views[sessionId]?.state ?? "disconnected");
   const config = useStore((s) => s.views[sessionId]?.config) ?? EMPTY_CONFIG;
   const usage = useStore((s) => s.views[sessionId]?.transcript.usage);
+  const plan = useStore((s) => s.views[sessionId]?.plan ?? false);
+  // Permission modes are replaced by Runner's plan / auto-accept toggle.
+  const visibleConfig = config.filter((c) => c.category !== "mode" && c.id !== "mode" && c.id !== "collaboration_mode");
   const ref = useRef<HTMLTextAreaElement>(null);
   const running = state === "running";
 
@@ -207,7 +210,10 @@ function Composer({ sessionId }: { sessionId: string }) {
         value={draft}
         onChange={(e) => actions.setDraft(sessionId, e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+          if (e.key === "Tab" && e.shiftKey) {
+            e.preventDefault();
+            void actions.togglePlan(sessionId);
+          } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             send();
           } else if (e.key === "Escape" && running) {
@@ -218,8 +224,25 @@ function Composer({ sessionId }: { sessionId: string }) {
         placeholder={running ? "Agent is working… (Esc to stop)" : "Ask the agent to do something"}
         className="selectable block max-h-72 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13.5px] leading-relaxed outline-none placeholder:text-faint"
       />
-      <div className="flex items-center gap-1 px-2 pb-2">
-        {config.map((c) => (
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-2 whitespace-nowrap">
+        <button
+          onClick={() => actions.togglePlan(sessionId)}
+          title={
+            plan
+              ? "Plan mode: the agent plans first and asks before making changes. Shift+Tab to switch."
+              : "Auto-accept: the agent may edit files and run commands without asking. Shift+Tab to switch."
+          }
+          className={clsx(
+            "flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs font-medium",
+            plan ? "bg-accent/15 text-accent" : "text-muted hover:bg-hover hover:text-fg",
+          )}
+        >
+          {plan ? <ListChecks size={12} /> : <ChevronsRight size={12} />}
+          {plan ? "Plan mode" : "Auto-accept"}
+          <kbd className="ml-0.5 font-sans font-normal text-faint">⇧⇥</kbd>
+        </button>
+        <span className="mx-0.5 h-3.5 w-px bg-border" />
+        {visibleConfig.map((c) => (
           <ConfigControl key={c.id} sessionId={sessionId} option={c} />
         ))}
         <div className="flex-1" />
@@ -249,20 +272,45 @@ function Composer({ sessionId }: { sessionId: string }) {
 
 const EMPTY_CONFIG: ConfigOption[] = [];
 
+const isOnOff = (values: string[]) => values.length === 2 && values.includes("on") && values.includes("off");
+
+/** Labels that make sense on their own: "Opus 5.5", "High effort", "⚡ Fast". */
 function ConfigControl({ sessionId, option }: { sessionId: string; option: ConfigOption }) {
-  if (option.type === "boolean") {
+  const flat: SelectOption[] = (option.options ?? []).flatMap((o: any) => ("options" in o ? o.options : [o]));
+  const tooltip = [option.name, option.description].filter(Boolean).join(" — ");
+
+  // On/off switches render as a toggle chip labelled with the option's name.
+  if (option.type === "boolean" || isOnOff(flat.map((o) => o.value))) {
+    const on = option.type === "boolean" ? !!option.currentValue : option.currentValue === "on";
+    const next = option.type === "boolean" ? !on : on ? "off" : "on";
+    const isFast = /fast/i.test(option.id + option.name);
     return (
-      <label className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-muted hover:bg-hover">
-        <input type="checkbox" checked={!!option.currentValue} onChange={(e) => actions.setConfig(sessionId, option.id, e.target.checked)} />
-        {option.name}
-      </label>
+      <button
+        onClick={() => actions.setConfig(sessionId, option.id, next)}
+        title={`${tooltip} (${on ? "on" : "off"})`}
+        className={clsx(
+          "flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs",
+          on ? "bg-warn/15 font-medium text-warn" : "text-faint hover:bg-hover hover:text-fg",
+        )}
+      >
+        {isFast && <Zap size={11} fill={on ? "currentColor" : "none"} />}
+        {isFast ? "Fast" : option.name}
+      </button>
     );
   }
-  const flat: SelectOption[] = (option.options ?? []).flatMap((o: any) => ("options" in o ? o.options : [o]));
+
   const current = flat.find((o) => o.value === option.currentValue);
+  const currentName = current?.name ?? String(option.currentValue);
+  const label =
+    option.category === "model"
+      ? currentName
+      : option.category === "thought_level"
+        ? `${currentName} effort`
+        : `${option.name}: ${currentName}`;
   return (
-    <label className="relative rounded px-1.5 py-1 text-xs text-muted hover:bg-hover hover:text-fg" title={option.name}>
-      {current?.name ?? String(option.currentValue)}
+    <label className="relative shrink-0 rounded px-1.5 py-1 text-xs text-muted hover:bg-hover hover:text-fg" title={tooltip}>
+      {option.category === "thought_level" && <Brain size={11} className="mr-1 inline -translate-y-px" />}
+      {label}
       <select
         value={String(option.currentValue)}
         onChange={(e) => actions.setConfig(sessionId, option.id, e.target.value)}

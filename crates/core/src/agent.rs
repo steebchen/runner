@@ -56,6 +56,13 @@ struct LiveSession {
     running: AtomicBool,
     replaying: AtomicBool,
     titled: AtomicBool,
+    /// Plan mode: the agent plans and asks before acting. Otherwise every
+    /// permission request is approved automatically.
+    plan: AtomicBool,
+    /// While we're changing the agent's mode ourselves, don't treat mode
+    /// updates as the agent leaving plan mode.
+    applying_mode: AtomicBool,
+    config: Mutex<Value>,
 }
 
 pub struct Agents {
@@ -105,6 +112,9 @@ impl Agents {
             running: AtomicBool::new(false),
             replaying: AtomicBool::new(false),
             titled: AtomicBool::new(!session.title.is_empty()),
+            plan: AtomicBool::new(false),
+            applying_mode: AtomicBool::new(false),
+            config: Mutex::new(json!([])),
         });
         Ok(self.sessions.lock().entry(session.id.clone()).or_insert(live).clone())
     }
@@ -146,6 +156,14 @@ impl Agents {
         }
         if !s.running.load(Ordering::SeqCst) {
             self.state(s, "connecting", None);
+        }
+        // The worktree may still be checking out in the background.
+        loop {
+            match self.store.workspace(&s.workspace_id)?.status.as_str() {
+                "creating" => tokio::time::sleep(std::time::Duration::from_millis(150)).await,
+                "failed" => bail!("the workspace's worktree could not be created (see the Setup tab)"),
+                _ => break,
+            }
         }
 
         let (conn, rx) = AcpConnection::spawn(&s.agent.command, &s.agent.args, &s.cwd)?;
@@ -194,10 +212,10 @@ impl Agents {
             }
         };
         if let Some(opts) = response.get("configOptions").filter(|v| v.is_array()) {
-            self.emitter.emit(Event::SessionConfig {
-                session_id: s.id.clone(),
-                config_options: opts.clone(),
-            });
+            self.set_config_options(s, opts.clone());
+        }
+        if let Err(e) = self.apply_mode(s, &conn).await {
+            log::warn!("could not apply permission mode: {e:#}");
         }
         if !s.running.load(Ordering::SeqCst) {
             self.state(s, "idle", None);
@@ -225,6 +243,14 @@ impl Agents {
                 }
                 Incoming::Notification { .. } => {}
                 Incoming::Request { id, method, params } => match method.as_str() {
+                    "session/request_permission" if !s.plan.load(Ordering::SeqCst) => {
+                        let options = params.get("options").cloned().unwrap_or(json!([]));
+                        let outcome = match auto_allow_option(&options) {
+                            Some(option_id) => json!({"outcome": "selected", "optionId": option_id}),
+                            None => json!({"outcome": "cancelled"}),
+                        };
+                        let _ = conn.respond(id, json!({"outcome": outcome})).await;
+                    }
                     "session/request_permission" => {
                         let request_id = uuid::Uuid::new_v4().to_string();
                         s.permissions.lock().insert(request_id.clone(), id);
@@ -258,25 +284,115 @@ impl Agents {
         }
     }
 
-    fn on_update(&self, s: &LiveSession, update: Value) {
+    fn on_update(self: &Arc<Self>, s: &Arc<LiveSession>, update: Value) {
         let kind = update.get("sessionUpdate").and_then(|k| k.as_str()).unwrap_or("");
         match kind {
             "config_option_update" => {
                 if let Some(opts) = update.get("configOptions") {
-                    self.emitter.emit(Event::SessionConfig {
-                        session_id: s.id.clone(),
-                        config_options: opts.clone(),
-                    });
+                    self.set_config_options(s, opts.clone());
+                    self.check_plan_exit(s);
+                }
+            }
+            "current_mode_update" => {
+                if let Some(mode) = update.get("currentModeId").and_then(|m| m.as_str()) {
+                    let mut config = s.config.lock().clone();
+                    if let Some(opts) = config.as_array_mut() {
+                        for o in opts.iter_mut().filter(|o| o["id"] == "mode") {
+                            o["currentValue"] = json!(mode);
+                        }
+                    }
+                    self.set_config_options(s, config);
+                    self.check_plan_exit(s);
                 }
             }
             "session_info_update" => {
+                // Agents often echo the raw prompt here; only use it if we have nothing better.
                 if let Some(title) = update.get("title").and_then(|t| t.as_str()) {
-                    self.set_title(s, title);
+                    if !s.titled.load(Ordering::SeqCst) {
+                        self.set_title(s, title);
+                    }
                 }
             }
             _ => {}
         }
         self.emitter.emit(Event::SessionUpdate { session_id: s.id.clone(), update });
+    }
+
+    fn set_config_options(&self, s: &LiveSession, opts: Value) {
+        *s.config.lock() = opts.clone();
+        self.emitter.emit(Event::SessionConfig { session_id: s.id.clone(), config_options: opts });
+    }
+
+    /// When the user approves a plan, agents leave plan mode on their own;
+    /// follow them back to auto-accept.
+    fn check_plan_exit(self: &Arc<Self>, s: &Arc<LiveSession>) {
+        if !s.plan.load(Ordering::SeqCst) || s.applying_mode.load(Ordering::SeqCst) {
+            return;
+        }
+        if is_plan(&s.config.lock()) {
+            return;
+        }
+        s.plan.store(false, Ordering::SeqCst);
+        self.emitter.emit(Event::SessionMode { session_id: s.id.clone(), plan: false });
+        let this = self.clone();
+        let s = s.clone();
+        tokio::spawn(async move {
+            let conn = s.conn.lock().await.clone();
+            if let Some(conn) = conn {
+                let _ = this.apply_mode(&s, &conn).await;
+            }
+        });
+    }
+
+    /// Push our plan/auto-accept choice into the agent's own config options.
+    async fn apply_mode(&self, s: &LiveSession, conn: &AcpConnection) -> Result<()> {
+        let changes = mode_changes(&s.config.lock(), s.plan.load(Ordering::SeqCst));
+        if changes.is_empty() {
+            return Ok(());
+        }
+        s.applying_mode.store(true, Ordering::SeqCst);
+        let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
+        let mut result = Ok(());
+        for (config_id, value) in changes {
+            match conn
+                .request(
+                    "session/set_config_option",
+                    json!({"sessionId": acp_id, "configId": config_id, "value": value}),
+                )
+                .await
+            {
+                Ok(r) => {
+                    if let Some(opts) = r.get("configOptions").filter(|v| v.is_array()) {
+                        self.set_config_options(s, opts.clone());
+                    }
+                }
+                Err(e) => result = Err(e),
+            }
+        }
+        s.applying_mode.store(false, Ordering::SeqCst);
+        result
+    }
+
+    pub async fn set_plan_mode(self: &Arc<Self>, session_id: &str, plan: bool) -> Result<()> {
+        let s = self.get(session_id)?;
+        s.plan.store(plan, Ordering::SeqCst);
+        self.emitter.emit(Event::SessionMode { session_id: s.id.clone(), plan });
+        // Leaving plan mode also approves anything the agent is waiting on.
+        if !plan {
+            let conn = s.conn.lock().await.clone();
+            if let Some(conn) = &conn {
+                let pending: Vec<(String, Value)> = s.permissions.lock().drain().collect();
+                for (request_id, id) in pending {
+                    let _ = conn.respond(id, json!({"outcome": {"outcome": "cancelled"}})).await;
+                    self.emitter.emit(Event::PermissionResolved { session_id: s.id.clone(), request_id });
+                }
+            }
+        }
+        let conn = s.conn.lock().await.clone();
+        match conn {
+            Some(conn) => self.apply_mode(&s, &conn).await,
+            None => Ok(()), // applied on connect
+        }
     }
 
     fn set_title(&self, s: &LiveSession, title: &str) {
@@ -289,13 +405,49 @@ impl Agents {
         self.emitter.emit(Event::SessionTitle { session_id: s.id.clone(), title });
     }
 
+    /// Instant heuristic title, upgraded to a Haiku summary when it arrives.
+    /// The workspace gets the same title if it doesn't have one yet.
+    fn auto_title(self: &Arc<Self>, s: &Arc<LiveSession>, text: &str) {
+        let quick = crate::title::quick_title(text);
+        self.set_title(s, &quick);
+        let title_workspace = self
+            .store
+            .workspace(&s.workspace_id)
+            .map(|w| w.title.is_empty())
+            .unwrap_or(false);
+        if title_workspace {
+            self.set_workspace_title(&s.workspace_id, &quick);
+        }
+        let this = self.clone();
+        let s = s.clone();
+        let text = text.to_string();
+        tokio::spawn(async move {
+            let Some(summary) = crate::title::summarize(&text).await else { return };
+            this.set_title(&s, &summary);
+            if title_workspace {
+                this.set_workspace_title(&s.workspace_id, &summary);
+            }
+        });
+    }
+
+    fn set_workspace_title(&self, workspace_id: &str, title: &str) {
+        if title.trim().is_empty() {
+            return;
+        }
+        let _ = self.store.set_workspace_title(workspace_id, title);
+        self.emitter.emit(Event::WorkspaceTitle {
+            workspace_id: workspace_id.into(),
+            title: title.into(),
+        });
+    }
+
     pub fn prompt(self: &Arc<Self>, session_id: &str, text: String) -> Result<()> {
         let s = self.get(session_id)?;
         if s.running.swap(true, Ordering::SeqCst) {
             bail!("agent is still working");
         }
         if !s.titled.load(Ordering::SeqCst) {
-            self.set_title(&s, &text);
+            self.auto_title(&s, &text);
         }
         self.emitter.emit(Event::UserMessage {
             session_id: s.id.clone(),
@@ -425,5 +577,107 @@ impl Agents {
         for id in ids {
             self.close(&id);
         }
+    }
+}
+
+/// Prefer "always" so the agent stops asking for the same tool.
+fn auto_allow_option(options: &Value) -> Option<String> {
+    let options = options.as_array()?;
+    ["allow_always", "allow_once"]
+        .iter()
+        .find_map(|kind| options.iter().find(|o| o["kind"] == *kind))
+        .and_then(|o| o["optionId"].as_str())
+        .map(str::to_string)
+}
+
+fn option<'a>(config: &'a Value, id: &str) -> Option<&'a Value> {
+    config.as_array()?.iter().find(|o| o["id"] == id)
+}
+
+fn has_value(opt: &Value, value: &str) -> bool {
+    let flat = |o: &Value| o["value"] == value;
+    opt["options"].as_array().is_some_and(|opts| {
+        opts.iter().any(|o| flat(o) || o["options"].as_array().is_some_and(|g| g.iter().any(flat)))
+    })
+}
+
+fn is_plan(config: &Value) -> bool {
+    ["mode", "collaboration_mode"]
+        .iter()
+        .filter_map(|id| option(config, id))
+        .any(|o| o["currentValue"] == "plan")
+}
+
+/// Config changes that put the agent into plan or auto-accept mode.
+///
+/// - Claude: `mode` = plan | bypassPermissions
+/// - Codex: `collaboration_mode` = plan | default, `mode` = agent-full-access
+/// - OpenCode: `mode` = plan | build
+fn mode_changes(config: &Value, plan: bool) -> Vec<(String, String)> {
+    const AUTO: &[&str] = &["bypassPermissions", "agent-full-access", "build", "acceptEdits", "auto"];
+    let mut changes = Vec::new();
+    let mut want = |id: &str, value: &str| {
+        if let Some(o) = option(config, id) {
+            if has_value(o, value) && o["currentValue"] != value {
+                changes.push((id.to_string(), value.to_string()));
+            }
+        }
+    };
+    let auto_value = option(config, "mode").and_then(|o| AUTO.iter().find(|v| has_value(o, v)).copied());
+    let collab_plan = option(config, "collaboration_mode").is_some_and(|o| has_value(o, "plan"));
+    if collab_plan {
+        want("collaboration_mode", if plan { "plan" } else { "default" });
+        if let Some(v) = auto_value {
+            want("mode", v);
+        }
+    } else if plan {
+        want("mode", "plan");
+    } else if let Some(v) = auto_value {
+        want("mode", v);
+    }
+    changes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn select(id: &str, current: &str, values: &[&str]) -> Value {
+        json!({"id": id, "type": "select", "currentValue": current,
+               "options": values.iter().map(|v| json!({"value": v, "name": v})).collect::<Vec<_>>()})
+    }
+
+    #[test]
+    fn claude_mode_changes() {
+        let config = json!([select("mode", "auto", &["default", "acceptEdits", "plan", "auto", "bypassPermissions"])]);
+        assert_eq!(mode_changes(&config, false), vec![("mode".into(), "bypassPermissions".into())]);
+        assert_eq!(mode_changes(&config, true), vec![("mode".into(), "plan".into())]);
+    }
+
+    #[test]
+    fn codex_mode_changes() {
+        let config = json!([
+            select("mode", "agent", &["read-only", "workspace-write", "agent", "agent-full-access"]),
+            select("collaboration_mode", "default", &["default", "plan"]),
+        ]);
+        assert_eq!(mode_changes(&config, false), vec![("mode".into(), "agent-full-access".into())]);
+        assert_eq!(
+            mode_changes(&config, true),
+            vec![("collaboration_mode".into(), "plan".into()), ("mode".into(), "agent-full-access".into())]
+        );
+        assert!(!is_plan(&config));
+    }
+
+    #[test]
+    fn opencode_mode_changes() {
+        let config = json!([select("mode", "build", &["build", "plan"])]);
+        assert!(mode_changes(&config, false).is_empty());
+        assert_eq!(mode_changes(&config, true), vec![("mode".into(), "plan".into())]);
+    }
+
+    #[test]
+    fn picks_allow_always() {
+        let opts = json!([{"optionId": "a", "kind": "allow_once"}, {"optionId": "b", "kind": "allow_always"}, {"optionId": "c", "kind": "reject_once"}]);
+        assert_eq!(auto_allow_option(&opts).as_deref(), Some("b"));
     }
 }

@@ -19,8 +19,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
 const workspaces = [
-  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: 2 },
-  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: 1 },
+  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: 2, title: "Add API rate limiting" },
+  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: 1, title: "" },
 ];
 const sessions: Record<string, any[]> = {
   w1: [{ id: "s1", workspaceId: "w1", agentId: "claude", acpSessionId: "a1", title: "Add rate limiting to the API", createdAt: 1 }],
@@ -35,8 +35,10 @@ let settings = {
   theme: "system",
 };
 const config = [
-  { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default", options: [{ value: "default", name: "Manual" }, { value: "acceptEdits", name: "Accept edits" }, { value: "plan", name: "Plan" }] },
-  { id: "model", name: "Model", category: "model", type: "select", currentValue: "opus", options: [{ value: "opus", name: "Opus 5.5" }, { value: "sonnet", name: "Sonnet 5" }] },
+  { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "bypassPermissions", options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan" }, { value: "bypassPermissions", name: "Bypass permissions" }] },
+  { id: "model", name: "Model", description: "AI model to use", category: "model", type: "select", currentValue: "opus", options: [{ value: "opus", name: "Opus 5.5" }, { value: "sonnet", name: "Sonnet 5" }] },
+  { id: "effort", name: "Effort", description: "Available effort levels for this model", category: "thought_level", type: "select", currentValue: "high", options: ["low", "medium", "high", "xhigh", "max"].map((v) => ({ value: v, name: v[0].toUpperCase() + v.slice(1) })) },
+  { id: "fast", name: "Fast mode", description: "Faster responses on supported models", category: "model_config", type: "select", currentValue: "off", options: [{ value: "on", name: "On" }, { value: "off", name: "Off" }] },
 ];
 
 const sessionHistory = (sid: string) => [
@@ -92,7 +94,7 @@ const handlers: Record<string, (a: any) => any> = {
     { id: "opencode", name: "OpenCode", command: "", args: [] },
   ],
   list_repos: () => [repo],
-  list_workspaces: () => workspaces,
+  list_workspaces: () => workspaces.map((w) => ({ ...w })),
   list_sessions: (a) => sessions[a.workspaceId] ?? [],
   session_events: (a) => sessionHistory(a.sessionId),
   get_settings: () => settings,
@@ -105,12 +107,45 @@ const handlers: Record<string, (a: any) => any> = {
       { id: "opencode", name: "OpenCode", installed: false, version: null, loggedIn: false, account: null, installCommand: "curl -fsSL https://opencode.ai/install | bash", loginCommand: "opencode auth login", logoutCommand: "opencode auth logout" },
     ];
   },
-  send_prompt: (a) => void streamReply(a.sessionId, a.text),
+  send_prompt: (a) => {
+    const ws = workspaces.find((w) => sessions[w.id]?.some((x) => x.id === a.sessionId));
+    if (ws && !ws.title) {
+      const quick = a.text.split(/\s+/).slice(0, 5).join(" ");
+      emit({ type: "workspaceTitle", workspaceId: ws.id, title: quick }, { type: "sessionTitle", sessionId: a.sessionId, title: quick });
+      setTimeout(() => {
+        ws.title = "Summarized title";
+        emit({ type: "workspaceTitle", workspaceId: ws.id, title: ws.title }, { type: "sessionTitle", sessionId: a.sessionId, title: ws.title });
+      }, 1500);
+    }
+    void streamReply(a.sessionId, a.text);
+  },
+  create_workspace: (a) => {
+    const n = workspaces.length + 1;
+    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "" };
+    workspaces.unshift(ws);
+    sessions[ws.id] = [];
+    setTimeout(() => {
+      ws.status = "ready";
+      emit({ type: "workspaceStatus", workspaceId: ws.id, status: "ready" });
+    }, 2000);
+    return { ...ws };
+  },
+  create_session: (a) => {
+    const x = { id: `s${Date.now()}`, workspaceId: a.workspaceId, agentId: a.agentId, acpSessionId: null, title: "", createdAt: Date.now() };
+    sessions[a.workspaceId] = [...(sessions[a.workspaceId] ?? []), x];
+    setTimeout(() => emit({ type: "sessionConfig", sessionId: x.id, configOptions: config }, { type: "sessionState", sessionId: x.id, state: "idle", error: null }), 2200);
+    return x;
+  },
   respond_permission: (a) => {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: 0 }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
-  set_config: () => {},
+  set_config: (a) => {
+    const o: any = config.find((c) => c.id === a.configId);
+    if (o) o.currentValue = a.value;
+    emit({ type: "sessionConfig", sessionId: a.sessionId, configOptions: config.map((c) => ({ ...c })) });
+  },
+  set_plan_mode: (a) => emit({ type: "sessionMode", sessionId: a.sessionId, plan: a.plan }),
   changed_files: () => [
     { path: "src/server/limiter.ts", status: "M", additions: 12, deletions: 1 },
     { path: "src/server/limiter.test.ts", status: "A", additions: 34, deletions: 0 },

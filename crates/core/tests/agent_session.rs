@@ -23,6 +23,7 @@ async fn wait_for(log: &Mutex<Vec<Event>>, what: &str, pred: impl Fn(&Event) -> 
 
 #[tokio::test]
 async fn prompt_permission_config_and_resume() {
+    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let (log, sink) = event_log();
     let core = Core::new(tmp.path(), sink).unwrap();
@@ -45,6 +46,7 @@ async fn prompt_permission_config_and_resume() {
             path: tmp.path().display().to_string(),
             status: "ready".into(),
             created_at: 0,
+            title: String::new(),
         })
         .unwrap();
 
@@ -59,13 +61,8 @@ async fn prompt_permission_config_and_resume() {
     })
     .await;
 
+    // Default mode auto-accepts: the agent's permission request never reaches the UI.
     core.agents.prompt(&sid, "do the thing".into()).unwrap();
-    let Event::PermissionRequest { request_id, .. } =
-        wait_for(&log, "permission", |e| matches!(e, Event::PermissionRequest { .. })).await
-    else {
-        unreachable!()
-    };
-    core.agents.respond_permission(&sid, &request_id, Some("allow".into())).await.unwrap();
     wait_for(&log, "turn end", |e| matches!(e, Event::TurnEnd { .. })).await;
     wait_for(&log, "allowed", |e| {
         matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"] == "outcome:allow")
@@ -73,7 +70,8 @@ async fn prompt_permission_config_and_resume() {
     .await;
     assert!(!core.agents.is_running(&sid));
     assert_eq!(core.store.session(&sid).unwrap().acp_session_id.as_deref(), Some("fake-1"));
-    assert_eq!(core.store.session(&sid).unwrap().title, "do the thing");
+    assert_eq!(core.store.session(&sid).unwrap().title, "Do the thing");
+    assert_eq!(core.store.workspace("w").unwrap().title, "Do the thing");
 
     // Transcript is persisted with streamed chunks merged.
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -82,9 +80,13 @@ async fn prompt_permission_config_and_resume() {
     assert!(stored.iter().any(|e| e["update"]["content"]["text"] == "Hello world"));
     assert_eq!(stored.last().unwrap()["type"], "turnEnd");
 
+    assert!(!log.lock().iter().any(|e| matches!(e, Event::PermissionRequest { .. })));
+
     // After the process dies, the next prompt resumes the same ACP session.
+    // In plan mode, permission requests are shown to the user.
     core.agents.close(&sid);
     log.lock().clear();
+    core.agents.set_plan_mode(&sid, true).await.unwrap();
     core.agents.prompt(&sid, "again".into()).unwrap();
     let Event::PermissionRequest { request_id, .. } =
         wait_for(&log, "permission 2", |e| matches!(e, Event::PermissionRequest { .. })).await

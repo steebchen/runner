@@ -14,9 +14,12 @@ pub enum Event {
     SessionState { session_id: String, state: String, error: Option<String> },
     SessionConfig { session_id: String, config_options: Value },
     SessionTitle { session_id: String, title: String },
+    /// Runner-level permission mode: plan (agent asks) or auto-accept everything.
+    SessionMode { session_id: String, plan: bool },
     PermissionRequest { session_id: String, request_id: String, tool_call: Value, options: Value },
     PermissionResolved { session_id: String, request_id: String },
     WorkspaceStatus { workspace_id: String, status: String },
+    WorkspaceTitle { workspace_id: String, title: String },
     ScriptOutput { workspace_id: String, data: String },
 }
 

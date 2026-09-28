@@ -10,6 +10,7 @@ pub mod forge;
 pub mod git;
 pub mod pty;
 pub mod setup;
+pub mod title;
 pub mod store;
 pub mod workspace;
 
@@ -126,23 +127,56 @@ impl Core {
             n += 1;
         }
         let path = root.join(&name);
-        let branch = format!("{prefix}{name}");
-        tokio::fs::create_dir_all(path.parent().unwrap()).await?;
-        git::create_worktree(&repo_path, &path, &branch, &repo.default_branch).await?;
-
-        let config = load_config(&path);
         let ws = Workspace {
             id: uuid::Uuid::new_v4().to_string(),
             repo_id: repo.id.clone(),
+            branch: format!("{prefix}{name}"),
             name,
-            branch,
             base_branch: repo.default_branch.clone(),
             path: path.to_string_lossy().to_string(),
-            status: if config.scripts.setup.is_some() { "setting_up" } else { "ready" }.into(),
+            status: "creating".into(),
             created_at: now(),
+            title: String::new(),
         };
         self.store.add_workspace(&ws)?;
 
+        // Fetching and checking out can take a while on big repos; return right
+        // away and let the UI show progress via WorkspaceStatus events.
+        let this = self.clone();
+        let ws_bg = ws.clone();
+        tokio::spawn(async move {
+            let ws = ws_bg;
+            let status = match this.prepare_worktree(&ws, &repo_path).await {
+                Ok(Some(setup)) => {
+                    this.set_status(&ws.id, "setting_up");
+                    let ok = this.run_script(&ws, &repo.path, &setup).await;
+                    if ok { "ready" } else { "setup_failed" }
+                }
+                Ok(None) => "ready",
+                Err(e) => {
+                    this.emitter.emit(Event::ScriptOutput {
+                        workspace_id: ws.id.clone(),
+                        data: format!("Failed to create worktree: {e:#}\n"),
+                    });
+                    "failed"
+                }
+            };
+            this.set_status(&ws.id, status);
+        });
+        Ok(ws)
+    }
+
+    fn set_status(&self, workspace_id: &str, status: &str) {
+        let _ = self.store.set_workspace_status(workspace_id, status);
+        self.emitter.emit(Event::WorkspaceStatus { workspace_id: workspace_id.into(), status: status.into() });
+    }
+
+    /// Create the worktree and copy configured files. Returns the setup script, if any.
+    async fn prepare_worktree(&self, ws: &Workspace, repo_path: &Path) -> Result<Option<String>> {
+        let path = PathBuf::from(&ws.path);
+        tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+        git::create_worktree(repo_path, &path, &ws.branch, &ws.base_branch).await?;
+        let config = load_config(&path);
         for file in &config.copy {
             let (from, to) = (repo_path.join(file), path.join(file));
             if from.exists() && !to.exists() {
@@ -152,17 +186,7 @@ impl Core {
                 let _ = tokio::fs::copy(&from, &to).await;
             }
         }
-        if let Some(script) = config.scripts.setup {
-            let this = self.clone();
-            let ws = ws.clone();
-            tokio::spawn(async move {
-                let ok = this.run_script(&ws, &repo.path, &script).await;
-                let status = if ok { "ready" } else { "setup_failed" };
-                let _ = this.store.set_workspace_status(&ws.id, status);
-                this.emitter.emit(Event::WorkspaceStatus { workspace_id: ws.id, status: status.into() });
-            });
-        }
-        Ok(ws)
+        Ok(config.scripts.setup)
     }
 
     /// Run a repo script inside the worktree, streaming output as `ScriptOutput`.

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Archive, ExternalLink, GitBranch, PanelRight, Plus, X } from "lucide-react";
+import { Archive, ExternalLink, GitBranch, Loader2, PanelRight, Plus, X } from "lucide-react";
+import { useResizable } from "../lib/resize";
+import { ResizeHandle } from "./ResizeHandle";
 import { actions, enabledAgents, toast, useStore } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
 import { api, type Session } from "../lib/api";
@@ -16,9 +18,14 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const sessionId = useStore((s) => s.selectedSession[workspaceId]);
   const hasSetupLog = useStore((s) => !!s.scriptLog[workspaceId]);
+  const failed = useStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.status === "failed");
   const editor = useStore((s) => s.settings?.editor);
   const [panel, setPanel] = useState(true);
   const [tab, setTab] = useState<Tab>("changes");
+  useEffect(() => {
+    if (failed) setTab("setup");
+  }, [failed]);
+  const panelSize = useResizable("runner.panelWidth", 560, 320, 1100, "left");
 
   useEffect(() => {
     if (sessionId) actions.selectSession(workspaceId, sessionId);
@@ -31,13 +38,13 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-13 shrink-0 items-center gap-2 border-b border-border px-3" data-tauri-drag-region>
         <div className="flex min-w-0 items-center gap-2" data-tauri-drag-region>
-          <span className="font-medium">{ws.name}</span>
+          <span className="font-medium">{ws.title || ws.name}</span>
           <span className="flex items-center gap-1 truncate text-xs text-muted" data-tauri-drag-region>
             <GitBranch size={11} /> {ws.branch} → {ws.baseBranch}
           </span>
         </div>
         <div className="flex-1" data-tauri-drag-region />
-        <PrActions workspace={ws} sessionId={sessionId} />
+        {ws.status !== "creating" && ws.status !== "failed" && <PrActions workspace={ws} sessionId={sessionId} />}
         <Menu
           label={
             <span className="flex items-center gap-1">
@@ -76,7 +83,12 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
           )}
         </section>
         {panel && (
-          <section className="flex w-[44%] max-w-[760px] min-w-[360px] flex-col border-l border-border bg-panel">
+          <section
+            ref={panelSize.ref as React.RefObject<HTMLElement>}
+            style={{ width: panelSize.width }}
+            className="relative flex max-w-[65%] shrink-0 flex-col border-l border-border bg-panel"
+          >
+            <ResizeHandle edge="left" onPointerDown={panelSize.onPointerDown} />
             <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
               {(["changes", "terminal", ...(hasSetupLog ? ["setup"] : [])] as Tab[]).map((t) => (
                 <button
@@ -91,13 +103,21 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
                 </button>
               ))}
             </div>
-            <div className={clsx("min-h-0 flex-1", tab !== "changes" && "hidden")}>
-              <ChangesPanel workspaceId={ws.id} sessionId={sessionId} />
-            </div>
-            {/* Terminals stay mounted so switching tabs never loses scrollback. */}
-            <div className={clsx("min-h-0 flex-1", tab !== "terminal" && "hidden")}>
-              <TerminalPanel workspaceId={ws.id} visible={tab === "terminal"} />
-            </div>
+            {ws.status === "creating" ? (
+              <div className="flex flex-1 items-center justify-center gap-2 text-muted">
+                <Loader2 size={13} className="animate-spin" /> Creating worktree…
+              </div>
+            ) : (
+              <>
+                <div className={clsx("min-h-0 flex-1", tab !== "changes" && "hidden")}>
+                  <ChangesPanel workspaceId={ws.id} sessionId={sessionId} />
+                </div>
+                {/* Terminals stay mounted so switching tabs never loses scrollback. */}
+                <div className={clsx("min-h-0 flex-1", tab !== "terminal" && "hidden")}>
+                  <TerminalPanel workspaceId={ws.id} visible={tab === "terminal"} />
+                </div>
+              </>
+            )}
             {tab === "setup" && <SetupLog workspaceId={ws.id} />}
           </section>
         )}

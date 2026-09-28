@@ -9,8 +9,10 @@ export type Workspace = {
   branch: string;
   baseBranch: string;
   path: string;
+  /** "creating" | "setting_up" | "ready" | "setup_failed" | "failed" */
   status: string;
   createdAt: number;
+  title: string;
 };
 
 export type Session = {
@@ -51,6 +53,7 @@ export type SelectOption = { value: string; name: string; description?: string |
 export type ConfigOption = {
   id: string;
   name: string;
+  description?: string | null;
   category?: string | null;
   type: "select" | "boolean";
   currentValue: string | boolean;
@@ -69,9 +72,11 @@ export type CoreEvent =
   | { type: "sessionState"; sessionId: string; state: string; error: string | null }
   | { type: "sessionConfig"; sessionId: string; configOptions: ConfigOption[] }
   | { type: "sessionTitle"; sessionId: string; title: string }
+  | { type: "sessionMode"; sessionId: string; plan: boolean }
   | { type: "permissionRequest"; sessionId: string; requestId: string; toolCall: any; options: PermissionOption[] }
   | { type: "permissionResolved"; sessionId: string; requestId: string }
   | { type: "workspaceStatus"; workspaceId: string; status: string }
+  | { type: "workspaceTitle"; workspaceId: string; title: string }
   | { type: "scriptOutput"; workspaceId: string; data: string };
 
 export type PrStatus = {
@@ -110,6 +115,7 @@ export const api = {
     invoke<void>("respond_permission", { sessionId, requestId, optionId }),
   setConfig: (sessionId: string, configId: string, value: string | boolean) =>
     invoke<void>("set_config", { sessionId, configId, value }),
+  setPlanMode: (sessionId: string, plan: boolean) => invoke<void>("set_plan_mode", { sessionId, plan }),
   changedFiles: (workspaceId: string) => invoke<ChangedFile[]>("changed_files", { workspaceId }),
   fileDiff: (workspaceId: string, path: string) => invoke<string>("file_diff", { workspaceId, path }),
   revertFile: (workspaceId: string, path: string) => invoke<void>("revert_file", { workspaceId, path }),

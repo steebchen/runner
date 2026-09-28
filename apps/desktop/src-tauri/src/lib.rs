@@ -140,6 +140,11 @@ async fn set_config(app: State<'_, App>, session_id: String, config_id: String, 
 }
 
 #[tauri::command]
+async fn set_plan_mode(app: State<'_, App>, session_id: String, plan: bool) -> Res<()> {
+    app.core.agents.set_plan_mode(&session_id, plan).await.map_err(err)
+}
+
+#[tauri::command]
 async fn changed_files(app: State<'_, App>, workspace_id: String) -> Res<Value> {
     let files = app.core.changed_files(&workspace_id).await.map_err(err)?;
     serde_json::to_value(files).map_err(|e| e.to_string())
@@ -313,6 +318,7 @@ pub fn run() {
             cancel_prompt,
             respond_permission,
             set_config,
+            set_plan_mode,
             changed_files,
             file_diff,
             revert_file,

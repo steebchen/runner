@@ -27,6 +27,8 @@ pub struct Workspace {
     pub path: String,
     pub status: String,
     pub created_at: i64,
+    /// Short summary of the task, generated from the first prompt.
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,7 +67,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     base_branch TEXT NOT NULL,
     path TEXT NOT NULL,
     status TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -99,6 +102,7 @@ impl Store {
         }
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         let writer = spawn_event_writer(Connection::open(path)?);
         Ok(Self { conn: Mutex::new(conn), writer })
     }
@@ -172,8 +176,8 @@ impl Store {
 
     pub fn add_workspace(&self, ws: &Workspace) -> Result<()> {
         self.conn.lock().execute(
-            "INSERT INTO workspaces (id, repo_id, name, branch, base_branch, path, status, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![ws.id, ws.repo_id, ws.name, ws.branch, ws.base_branch, ws.path, ws.status, ws.created_at],
+            "INSERT INTO workspaces (id, repo_id, name, branch, base_branch, path, status, created_at, title) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![ws.id, ws.repo_id, ws.name, ws.branch, ws.base_branch, ws.path, ws.status, ws.created_at, ws.title],
         )?;
         Ok(())
     }
@@ -185,9 +189,16 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_workspace_title(&self, id: &str, title: &str) -> Result<()> {
+        self.conn
+            .lock()
+            .execute("UPDATE workspaces SET title = ?2 WHERE id = ?1", params![id, title])?;
+        Ok(())
+    }
+
     pub fn workspace(&self, id: &str) -> Result<Workspace> {
         Ok(self.conn.lock().query_row(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at FROM workspaces WHERE id = ?1",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title FROM workspaces WHERE id = ?1",
             [id],
             row_to_workspace,
         )?)
@@ -196,7 +207,7 @@ impl Store {
     pub fn workspaces(&self) -> Result<Vec<Workspace>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], row_to_workspace)?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -276,6 +287,17 @@ impl Store {
     }
 }
 
+/// Additive migrations for databases created by older versions.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has_title = conn
+        .prepare("SELECT 1 FROM pragma_table_info('workspaces') WHERE name = 'title'")?
+        .exists([])?;
+    if !has_title {
+        conn.execute("ALTER TABLE workspaces ADD COLUMN title TEXT NOT NULL DEFAULT ''", [])?;
+    }
+    Ok(())
+}
+
 /// Background writer: drains the queue, merges consecutive text chunks of the
 /// same message, and commits each batch in a single transaction.
 fn spawn_event_writer(mut conn: Connection) -> mpsc::Sender<(String, Value)> {
@@ -349,6 +371,7 @@ fn row_to_workspace(r: &rusqlite::Row) -> rusqlite::Result<Workspace> {
         path: r.get(5)?,
         status: r.get(6)?,
         created_at: r.get(7)?,
+        title: r.get(8)?,
     })
 }
 

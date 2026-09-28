@@ -89,6 +89,7 @@ Performance notes:
 | ⌘, | Settings |
 | Enter / ⇧Enter | Send / newline |
 | Esc | Stop agent |
+| ⇧Tab | Toggle plan mode / auto-accept |
 
 ## License
 

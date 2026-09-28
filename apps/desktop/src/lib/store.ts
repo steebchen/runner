@@ -14,6 +14,8 @@ export type SessionView = {
   loaded: boolean;
   /** finished a turn while not being looked at */
   unread: boolean;
+  /** plan mode (agent asks before acting); otherwise everything is auto-accepted */
+  plan: boolean;
 };
 
 const newView = (loaded: boolean): SessionView => ({
@@ -24,6 +26,7 @@ const newView = (loaded: boolean): SessionView => ({
   permissions: [],
   loaded,
   unread: false,
+  plan: false,
 });
 
 type State = {
@@ -97,6 +100,10 @@ function handleEvents(events: CoreEvent[]) {
       scriptLog[e.workspaceId] = (scriptLog[e.workspaceId] ?? "") + e.data;
       continue;
     }
+    if (e.type === "workspaceTitle") {
+      set({ workspaces: get().workspaces.map((w) => (w.id === e.workspaceId ? { ...w, title: e.title } : w)) });
+      continue;
+    }
     if (e.type === "workspaceStatus") {
       if (changesTick === s.changesTick) changesTick = { ...changesTick };
       changesTick[e.workspaceId] = (changesTick[e.workspaceId] ?? 0) + 1;
@@ -120,6 +127,9 @@ function handleEvents(events: CoreEvent[]) {
           break;
         case "sessionConfig":
           v.config = e.configOptions;
+          break;
+        case "sessionMode":
+          v.plan = e.plan;
           break;
         case "sessionTitle":
           sessions = Object.fromEntries(
@@ -290,6 +300,15 @@ export const actions = {
 
   async respondPermission(sessionId: string, requestId: string, optionId: string | null) {
     await guard(api.respondPermission(sessionId, requestId, optionId));
+  },
+
+  async togglePlan(sessionId: string) {
+    const s = get();
+    const v = s.views[sessionId];
+    if (!v) return;
+    const plan = !v.plan;
+    set({ views: { ...s.views, [sessionId]: { ...v, plan } } });
+    await guard(api.setPlanMode(sessionId, plan));
   },
 
   async setConfig(sessionId: string, configId: string, value: string | boolean) {
