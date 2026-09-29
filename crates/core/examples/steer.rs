@@ -27,7 +27,8 @@ async fn main() -> anyhow::Result<()> {
     let mut text = String::new();
     for _ in 0..1200 {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        for e in std::mem::take(&mut *events.lock()) {
+        let batch = std::mem::take(&mut *events.lock());
+        for e in batch {
             match e {
                 Event::SessionUpdate { update, .. } if update["sessionUpdate"] == "agent_message_chunk" => {
                     text.push_str(update["content"]["text"].as_str().unwrap_or(""));
