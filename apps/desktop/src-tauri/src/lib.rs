@@ -126,6 +126,20 @@ fn repo_config(app: State<'_, App>, workspace_id: String) -> Res<Value> {
 }
 
 #[tauri::command]
+fn repo_settings(app: State<'_, App>, repo_id: String) -> Res<Value> {
+    let file = app.core.repo_file_config(&repo_id).map_err(err)?;
+    Ok(serde_json::json!({
+        "config": app.core.repo_settings(&repo_id),
+        "file": file.map(|(name, config)| serde_json::json!({"name": name, "config": config})),
+    }))
+}
+
+#[tauri::command]
+fn save_repo_settings(app: State<'_, App>, repo_id: String, config: runner_core::workspace::RepoConfig) -> Res<()> {
+    app.core.save_repo_settings(&repo_id, &config).map_err(err)
+}
+
+#[tauri::command]
 fn list_sessions(app: State<'_, App>, workspace_id: String) -> Res<Vec<Session>> {
     app.core.store.sessions(&workspace_id).map_err(err)
 }
@@ -494,6 +508,8 @@ pub fn run() {
             set_workspace_unread,
             restore_workspace,
             repo_config,
+            repo_settings,
+            save_repo_settings,
             list_sessions,
             create_session,
             delete_session,

@@ -127,7 +127,7 @@ export function TerminalPanel({ workspaceId, visible }: { workspaceId: string; v
   }, [active, visible]);
 
   const run = () => {
-    if (!runScript) return toast("Add a `scripts.run` command to runner.json to use Run", "info");
+    if (!runScript) return toast("Set a run script in Settings → Repositories (or runner.json) to use Run", "info");
     setActiveId(createEntry(workspaceId, "run", runScript).id);
   };
 

@@ -30,6 +30,7 @@ impl Terminals {
         cols: u16,
         rows: u16,
         command: Option<&str>,
+        env: &[(String, String)],
         on_output: impl Fn(Vec<u8>) + Send + 'static,
         on_exit: impl FnOnce() + Send + 'static,
     ) -> Result<()> {
@@ -43,6 +44,9 @@ impl Terminals {
         cmd.cwd(cwd);
         cmd.env_clear();
         for (k, v) in login_env() {
+            cmd.env(k, v);
+        }
+        for (k, v) in env {
             cmd.env(k, v);
         }
         cmd.env("TERM", "xterm-256color");

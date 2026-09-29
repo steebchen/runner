@@ -26,6 +26,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { actions, formatCost, useStore, workspaceActivity } from "../lib/store";
 import type { PrStatus, Repo, Workspace } from "../lib/api";
 import { AddRepoMenu } from "./AddRepoMenu";
+import { openRepoSettings } from "./RepoSettings";
 
 export function Sidebar() {
   const repos = useStore((s) => s.repos);
@@ -130,6 +131,13 @@ function RepoGroup({ repo }: { repo: Repo }) {
             <Trash2 size={12} />
           </button>
         )}
+        <button
+          onClick={() => openRepoSettings(repo.id)}
+          title="Repository settings (scripts, files to copy)"
+          className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"
+        >
+          <SettingsIcon size={12} />
+        </button>
         <button
           onClick={() => actions.createWorkspace(repo.id)}
           title="New workspace (⌘N)"

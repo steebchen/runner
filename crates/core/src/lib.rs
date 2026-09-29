@@ -33,7 +33,7 @@ pub use store::{Repo, Session, Store, Workspace};
 use crate::env::{tokio_command, user_shell};
 use crate::store::now;
 use crate::setup::Settings;
-use crate::workspace::{load_config, pick_name, RepoConfig};
+use crate::workspace::{load_file_config, merge_config, pick_name, script_env, RepoConfig};
 
 /// Stash message used to keep a workspace's uncommitted work while archived.
 fn archive_marker(workspace_id: &str) -> String {
@@ -266,7 +266,7 @@ impl Core {
                 }
             }
         }
-        let config = load_config(&path);
+        let config = self.config_for(&ws.repo_id, &path);
         for file in &config.copy {
             let (from, to) = (repo_path.join(file), path.join(file));
             if from.exists() && !to.exists() {
@@ -288,9 +288,7 @@ impl Core {
         let child = tokio_command(&user_shell())
             .args(["-lc", script])
             .current_dir(&ws.path)
-            .env("RUNNER_ROOT_PATH", repo_path)
-            .env("RUNNER_WORKSPACE_NAME", &ws.name)
-            .env("RUNNER_WORKSPACE_PATH", &ws.path)
+            .envs(script_env(repo_path, &ws.name, &ws.path, &ws.id))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -330,7 +328,7 @@ impl Core {
         }
         let path = Path::new(&ws.path);
         if path.exists() {
-            if let Some(script) = load_config(path).scripts.archive {
+            if let Some(script) = self.config_for(&ws.repo_id, path).scripts.archive {
                 self.run_script(&ws, &repo.path, &script).await;
             }
             // Never throw away work: uncommitted changes go to a stash that
@@ -352,8 +350,34 @@ impl Core {
         Ok(())
     }
 
+    /// The effective config for a workspace (committed file + app settings).
     pub fn repo_config(&self, workspace_id: &str) -> Result<RepoConfig> {
-        Ok(load_config(Path::new(&self.store.workspace(workspace_id)?.path)))
+        let ws = self.store.workspace(workspace_id)?;
+        Ok(self.config_for(&ws.repo_id, Path::new(&ws.path)))
+    }
+
+    fn config_for(&self, repo_id: &str, checkout: &Path) -> RepoConfig {
+        merge_config(load_file_config(checkout).map(|(_, c)| c), self.repo_settings(repo_id))
+    }
+
+    /// Scripts and files to copy set in the app for a repository.
+    pub fn repo_settings(&self, repo_id: &str) -> RepoConfig {
+        self.store
+            .setting(&format!("repo_config:{repo_id}"))
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save_repo_settings(&self, repo_id: &str, config: &RepoConfig) -> Result<()> {
+        self.store.set_setting(&format!("repo_config:{repo_id}"), &serde_json::to_string(config)?)
+    }
+
+    /// The config file committed in the repository's main checkout, if any.
+    pub fn repo_file_config(&self, repo_id: &str) -> Result<Option<(String, RepoConfig)>> {
+        let repo = self.store.repo(repo_id)?;
+        Ok(load_file_config(Path::new(&repo.path)).map(|(n, c)| (n.to_string(), c)))
     }
 
     // ---- sessions ----
@@ -657,8 +681,10 @@ impl Core {
         on_output: impl Fn(Vec<u8>) + Send + 'static,
         on_exit: impl FnOnce() + Send + 'static,
     ) -> Result<()> {
-        let (_, path) = self.ws_path(workspace_id)?;
-        self.terminals.spawn(terminal_id, &path, cols, rows, command, on_output, on_exit)
+        let (ws, path) = self.ws_path(workspace_id)?;
+        let root = self.store.repo(&ws.repo_id).map(|r| r.path).unwrap_or_default();
+        let env = script_env(&root, &ws.name, &ws.path, &ws.id);
+        self.terminals.spawn(terminal_id, &path, cols, rows, command, &env, on_output, on_exit)
     }
 
     /// Terminal outside any workspace (used for agent install/login flows).
@@ -672,6 +698,6 @@ impl Core {
         on_exit: impl FnOnce() + Send + 'static,
     ) -> Result<()> {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        self.terminals.spawn(terminal_id, &home, cols, rows, Some(command), on_output, on_exit)
+        self.terminals.spawn(terminal_id, &home, cols, rows, Some(command), &[], on_output, on_exit)
     }
 }

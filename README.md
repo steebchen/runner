@@ -54,7 +54,9 @@ Optional, committed at the repo root:
 }
 ```
 
-`setup` runs in each new worktree (output appears in the Setup tab). `copy` brings gitignored files over from the main checkout. Scripts get `RUNNER_ROOT_PATH`, `RUNNER_WORKSPACE_NAME` and `RUNNER_WORKSPACE_PATH`.
+`setup` runs in each new worktree (output appears in the Setup tab). `copy` brings gitignored files over from the main checkout. Scripts and workspace terminals get `RUNNER_ROOT_PATH`, `RUNNER_WORKSPACE_NAME`, `RUNNER_WORKSPACE_PATH` and `RUNNER_PORT` (the first of 10 ports reserved for the workspace, so dev servers of parallel workspaces don't collide).
+
+A `conductor.json` is read the same way when there's no `runner.json` (the `CONDUCTOR_*` variables are set too). The same settings can also be made per repository in Settings → Repositories; a committed file takes precedence per script.
 
 ## Architecture
 

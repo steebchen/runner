@@ -1,4 +1,5 @@
-//! Per-repo configuration (`runner.json`) and workspace naming.
+//! Per-repo configuration (`runner.json`, `conductor.json` or app settings),
+//! the environment scripts and terminals get, and workspace naming.
 
 use std::path::Path;
 
@@ -23,11 +24,58 @@ pub struct RepoConfig {
     pub copy: Vec<String>,
 }
 
-pub fn load_config(repo_path: &Path) -> RepoConfig {
-    std::fs::read_to_string(repo_path.join("runner.json"))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+/// Config files looked for in a checkout, in order. `conductor.json` has the
+/// same `scripts` shape, so repos set up for Conductor work as they are.
+pub const CONFIG_FILES: &[&str] = &["runner.json", "conductor.json"];
+
+/// The config file committed in a checkout, if any, and its name.
+pub fn load_file_config(dir: &Path) -> Option<(&'static str, RepoConfig)> {
+    CONFIG_FILES.iter().find_map(|name| {
+        let text = std::fs::read_to_string(dir.join(name)).ok()?;
+        serde_json::from_str(&text).ok().map(|c| (*name, c))
+    })
+}
+
+/// The committed file wins per script; settings made in the app fill the
+/// gaps. Files to copy are combined.
+pub fn merge_config(file: Option<RepoConfig>, app: RepoConfig) -> RepoConfig {
+    let Some(file) = file else { return app };
+    let pick = |a: Option<String>, b: Option<String>| a.filter(|s| !s.trim().is_empty()).or(b.filter(|s| !s.trim().is_empty()));
+    let mut copy = file.copy;
+    for c in app.copy {
+        if !copy.contains(&c) {
+            copy.push(c);
+        }
+    }
+    RepoConfig {
+        scripts: Scripts {
+            setup: pick(file.scripts.setup, app.scripts.setup),
+            run: pick(file.scripts.run, app.scripts.run),
+            archive: pick(file.scripts.archive, app.scripts.archive),
+        },
+        copy,
+    }
+}
+
+/// A block of 10 ports for the workspace's dev servers, so several
+/// workspaces can run side by side. Stable for a workspace id.
+pub fn port_base(workspace_id: &str) -> u16 {
+    let hash = workspace_id.bytes().fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(b as u32));
+    50_000 + (hash % 1_000) as u16 * 10
+}
+
+/// Environment for setup/run/archive scripts and workspace terminals. The
+/// `CONDUCTOR_*` names are set too, for scripts written for Conductor.
+pub fn script_env(root_path: &str, name: &str, path: &str, workspace_id: &str) -> Vec<(String, String)> {
+    let port = port_base(workspace_id).to_string();
+    let mut env = Vec::new();
+    for prefix in ["RUNNER", "CONDUCTOR"] {
+        env.push((format!("{prefix}_ROOT_PATH"), root_path.to_string()));
+        env.push((format!("{prefix}_WORKSPACE_NAME"), name.to_string()));
+        env.push((format!("{prefix}_WORKSPACE_PATH"), path.to_string()));
+        env.push((format!("{prefix}_PORT"), port.clone()));
+    }
+    env
 }
 
 const NAMES: &[&str] = &[
@@ -98,6 +146,32 @@ mod tests {
         assert_eq!(branch_slug("Question"), None);
         let long = branch_slug("Refactor the authentication middleware to support multiple providers").unwrap();
         assert!(long.len() <= 40 && !long.ends_with('-'), "{long}");
+    }
+
+    #[test]
+    fn file_config_wins_and_app_config_fills_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_file_config(dir.path()).is_none());
+        std::fs::write(dir.path().join("conductor.json"), r#"{"scripts":{"setup":"npm ci","run":""}}"#).unwrap();
+        let (name, file) = load_file_config(dir.path()).unwrap();
+        assert_eq!(name, "conductor.json");
+        let app = RepoConfig {
+            scripts: Scripts { setup: Some("pnpm i".into()), run: Some("pnpm dev".into()), archive: None },
+            copy: vec![".env".into()],
+        };
+        let c = merge_config(Some(file), app);
+        assert_eq!(c.scripts.setup.as_deref(), Some("npm ci"));
+        assert_eq!(c.scripts.run.as_deref(), Some("pnpm dev"));
+        assert_eq!(c.copy, vec![".env"]);
+        std::fs::write(dir.path().join("runner.json"), r#"{"copy":[".env.local"]}"#).unwrap();
+        assert_eq!(load_file_config(dir.path()).unwrap().0, "runner.json");
+    }
+
+    #[test]
+    fn ports_are_stable_blocks() {
+        let p = port_base("abc");
+        assert_eq!(p, port_base("abc"));
+        assert!((50_000..60_000).contains(&p) && p % 10 == 0);
     }
 
     #[test]

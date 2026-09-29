@@ -9,6 +9,7 @@ import { actions, useStore } from "../lib/store";
 import { followTheme, xtermTheme } from "../lib/xtermTheme";
 import { AgentIcon, findModel, modelName } from "../lib/models";
 import { ModelSettings } from "./ModelSettings";
+import { RepoSettings } from "./RepoSettings";
 
 export function Settings() {
   const settings = useStore((s) => s.settings);
@@ -70,6 +71,12 @@ export function Settings() {
             >
               <Toggle checked={settings.renameBranches} onChange={(renameBranches) => actions.saveSettings({ renameBranches })} />
             </Field>
+          </Section>
+          <Section
+            title="Repositories"
+            description="Scripts that set up, run and clean up workspaces, and files to copy into them. A runner.json (or conductor.json) committed to the repository takes precedence."
+          >
+            <RepoSettings />
           </Section>
           <Section title="Appearance & tools">
             <Field label="Theme">

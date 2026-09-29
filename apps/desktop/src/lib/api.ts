@@ -30,6 +30,8 @@ export type Session = {
 
 export type AgentDef = { id: string; name: string; command: string; args: string[] };
 
+export type RepoConfig = { scripts: { setup?: string | null; run?: string | null; archive?: string | null }; copy: string[] };
+
 export type Choice = { value: string; name: string; description?: string | null };
 export type Catalog = { models: Choice[]; efforts: Choice[]; hasFast: boolean; updatedAt: number };
 export type LoadoutEntry = { agent: string; model: string; effort?: string | null };
@@ -154,8 +156,10 @@ export const api = {
   listAllWorkspaces: () => invoke<Workspace[]>("list_all_workspaces"),
   restoreWorkspace: (workspaceId: string) => invoke<Workspace>("restore_workspace", { workspaceId }),
   archiveWorkspace: (workspaceId: string) => invoke<void>("archive_workspace", { workspaceId }),
-  repoConfig: (workspaceId: string) =>
-    invoke<{ scripts: { setup?: string; run?: string; archive?: string }; copy: string[] }>("repo_config", { workspaceId }),
+  repoConfig: (workspaceId: string) => invoke<RepoConfig>("repo_config", { workspaceId }),
+  repoSettings: (repoId: string) =>
+    invoke<{ config: RepoConfig; file: { name: string; config: RepoConfig } | null }>("repo_settings", { repoId }),
+  saveRepoSettings: (repoId: string, config: RepoConfig) => invoke<void>("save_repo_settings", { repoId, config }),
   listSessions: (workspaceId: string) => invoke<Session[]>("list_sessions", { workspaceId }),
   createSession: (workspaceId: string, agentId: string, model?: string | null, effort?: string | null) =>
     invoke<Session>("create_session", { workspaceId, agentId, model: model ?? null, effort: effort ?? null }),

@@ -26,7 +26,8 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/title.rs            Quick heuristic titles + Haiku summaries via `claude -p`
   src/catalog.rs          Per-agent model/effort catalog, discovered from ACP
                           configOptions (short discovery session or live sessions)
-  src/workspace.rs        runner.json config, workspace naming
+  src/workspace.rs        Repo config (runner.json / conductor.json merged with
+                          per-repo app settings), script env, workspace naming
   src/recent.rs           "Recents" for Add repository, from Claude/Codex history
   src/attachments.rs      Images attached to prompts, copied into the data dir
   src/usage.rs            Cost of usage rows: agent-reported, or estimated from

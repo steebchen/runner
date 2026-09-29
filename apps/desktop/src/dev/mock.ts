@@ -117,6 +117,7 @@ async function streamReply(sessionId: string, text: string, images?: string[]) {
 let pricing: Record<string, any> = {};
 const attachments = new Map<string, string>();
 const mergeState: Record<string, any> = {};
+let repoSettings: any = { scripts: { run: "pnpm dev --port $RUNNER_PORT" }, copy: [".env"] };
 function usageRows() {
   const rows: any[] = [];
   let seed = 7;
@@ -336,6 +337,8 @@ const handlers: Record<string, (a: any) => any> = {
   file_diff: () => patch,
   pr_status: () => null,
   repo_config: () => ({ scripts: { run: "pnpm dev" }, copy: [] }),
+  repo_settings: () => ({ config: repoSettings, file: { name: "conductor.json", config: { scripts: { setup: "pnpm install" }, copy: [] } } }),
+  save_repo_settings: (a) => void (repoSettings = a.config),
   terminal_open: (a) => {
     setTimeout(() => send(a.onData, new TextEncoder().encode("\x1b[32m➜\x1b[0m tokyo git:(runner/tokyo) ").buffer), 50);
   },
@@ -345,6 +348,9 @@ const handlers: Record<string, (a: any) => any> = {
   terminal_write: () => {},
   terminal_resize: () => {},
   terminal_kill: () => {},
+  "plugin:event|listen": () => nextCb++,
+  "plugin:event|unlisten": () => {},
+  "plugin:window|set_badge_count": () => {},
 };
 
 (window as any).__TAURI_INTERNALS__ = {
@@ -366,4 +372,5 @@ const handlers: Record<string, (a: any) => any> = {
   },
   metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
 };
+(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
 export {};
