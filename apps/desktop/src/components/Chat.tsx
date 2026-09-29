@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, ListChecks, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, useStore, type PendingQuestion, type Permission } from "../lib/store";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -166,6 +166,86 @@ const Row = memo(function Row({ item }: { item: Item }) {
       );
   }
 });
+
+/** A queued follow-up: dismiss it, or edit it (which holds the queue until saved). */
+function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: number; text: string }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(text);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const editingRef = useRef(false);
+  editingRef.current = editing;
+  // Leaving the chat mid-edit must not leave the queue paused forever.
+  useEffect(() => () => void (editingRef.current && actions.holdQueue(sessionId, false)), [sessionId]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [value, editing]);
+
+  const start = () => {
+    setValue(text);
+    setEditing(true);
+    actions.holdQueue(sessionId, true);
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(text.length, text.length);
+    });
+  };
+  const finish = (save: boolean) => {
+    if (save) actions.editQueued(sessionId, index, value);
+    setEditing(false);
+    actions.holdQueue(sessionId, false);
+  };
+
+  if (editing) {
+    return (
+      <div className="rounded-lg border border-accent/50 bg-bg p-1.5">
+        <textarea
+          ref={ref}
+          value={value}
+          rows={1}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              finish(true);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              finish(false);
+            }
+          }}
+          className="selectable block w-full resize-none bg-transparent px-1 text-xs leading-relaxed outline-none"
+        />
+        <div className="mt-1 flex items-center gap-2 px-1 text-[11px] text-faint">
+          <span>Queue paused while editing</span>
+          <span className="flex-1" />
+          <button onClick={() => finish(false)} className="rounded px-1.5 py-0.5 hover:bg-hover hover:text-fg">
+            Cancel
+          </button>
+          <button onClick={() => finish(true)} className="rounded bg-accent px-2 py-0.5 font-medium text-accent-fg">
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-start gap-2 text-xs text-muted">
+      <Clock size={11} className="mt-0.5 shrink-0" />
+      <span className="line-clamp-2 min-w-0 flex-1 cursor-text whitespace-pre-wrap" onClick={start} title="Click to edit">
+        {text}
+      </span>
+      <button onClick={start} className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Edit">
+        <Pencil size={11} />
+      </button>
+      <button onClick={() => actions.unqueue(sessionId, index)} className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Remove from queue">
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
 
 function duration(ms: number) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -336,14 +416,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
       {queued.length > 0 && (
         <div className="space-y-1 border-b border-border px-3 pt-2 pb-2">
           {queued.map((q, i) => (
-            <div key={i} className="group flex items-center gap-2 text-xs text-muted">
-              <Clock size={11} className="shrink-0" />
-              <span className="truncate">{q}</span>
-              <span className="flex-1" />
-              <button onClick={() => actions.unqueue(sessionId, i)} className="invisible rounded p-0.5 group-hover:visible hover:bg-hover hover:text-fg" title="Remove from queue">
-                <X size={11} />
-              </button>
-            </div>
+            <QueuedMessage key={`${i}:${q}`} sessionId={sessionId} index={i} text={q} />
           ))}
         </div>
       )}

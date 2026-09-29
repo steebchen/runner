@@ -27,6 +27,8 @@ export type SessionView = {
   plan: boolean;
   /** follow-ups typed while the agent was working, sent when the turn ends */
   queued: string[];
+  /** a queued message is being edited: hold the queue until it's saved */
+  queueHeld: boolean;
 };
 
 const newView = (loaded: boolean): SessionView => ({
@@ -40,6 +42,7 @@ const newView = (loaded: boolean): SessionView => ({
   unread: false,
   plan: false,
   queued: [],
+  queueHeld: false,
 });
 
 type State = {
@@ -194,7 +197,7 @@ function handleEvents(events: CoreEvent[]) {
       attention.push({ sessionId, kind: asks ? "input" : "done", detail: asks?.type === "question" ? asks.message : undefined });
     }
     // Send the next queued follow-up once a turn ends normally.
-    if (finished && finished.type === "turnEnd" && finished.stopReason === "end_turn" && v.queued.length) {
+    if (finished && finished.type === "turnEnd" && finished.stopReason === "end_turn" && v.queued.length && !v.queueHeld) {
       const [next, ...rest] = v.queued;
       v.queued = rest;
       setTimeout(() => void actions.send(sessionId, next), 0);
@@ -463,6 +466,30 @@ export const actions = {
   unqueue(sessionId: string, index: number) {
     const v = get().views[sessionId];
     if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: v.queued.filter((_, i) => i !== index) } } });
+  },
+
+  /** Pause/resume the queue while a queued message is edited. */
+  holdQueue(sessionId: string, held: boolean) {
+    const v = get().views[sessionId];
+    if (!v) return;
+    set({ views: { ...get().views, [sessionId]: { ...v, queueHeld: held } } });
+    if (!held) actions.flushQueue(sessionId);
+  },
+
+  editQueued(sessionId: string, index: number, text: string) {
+    const v = get().views[sessionId];
+    if (!v) return;
+    const queued = text.trim() ? v.queued.map((q, i) => (i === index ? text.trim() : q)) : v.queued.filter((_, i) => i !== index);
+    set({ views: { ...get().views, [sessionId]: { ...v, queued } } });
+  },
+
+  /** Send the next queued message if the agent is idle (e.g. it finished while the queue was held). */
+  flushQueue(sessionId: string) {
+    const v = get().views[sessionId];
+    if (!v || v.queueHeld || !v.queued.length || v.state === "running" || v.state === "connecting") return;
+    const [next, ...rest] = v.queued;
+    set({ views: { ...get().views, [sessionId]: { ...v, queued: rest } } });
+    void actions.send(sessionId, next);
   },
 
   async send(sessionId: string, text: string) {
