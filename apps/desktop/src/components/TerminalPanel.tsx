@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
-import { Play, Plus, X } from "lucide-react";
+import { ArrowUpRight, Play, Plus, RotateCw, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "../lib/api";
 import { toast } from "../lib/store";
 import { followTheme, xtermTheme } from "../lib/xtermTheme";
@@ -18,7 +20,23 @@ type Entry = {
   started: boolean;
   exited: boolean;
   unfollow: () => void;
+  /** first local server URL the process printed (e.g. a dev server) */
+  url: string | null;
+  decoder: TextDecoder;
 };
+
+// Strip ANSI escapes, then look for a local server address.
+const ANSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07/g;
+const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d{2,5}[^\s'")\]]*/;
+
+function detectUrl(entry: Entry, data: Uint8Array) {
+  if (entry.url) return;
+  const m = LOCAL_URL.exec(entry.decoder.decode(data, { stream: true }).replace(ANSI, ""));
+  if (m) {
+    entry.url = m[0].replace("0.0.0.0", "localhost").replace(/[.,;:]+$/, "");
+    notify();
+  }
+}
 
 // Terminals live outside React so switching workspaces or tabs only moves a
 // DOM node instead of recreating xterm and losing scrollback.
@@ -47,10 +65,11 @@ function createEntry(workspaceId: string, title: string, command: string | null)
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
+  term.loadAddon(new WebLinksAddon((_e, uri) => void openUrl(uri).catch(() => {})));
   const unfollow = followTheme(term);
   const el = document.createElement("div");
   el.style.height = "100%";
-  const entry: Entry = { id, workspaceId, title, command, term, fit, el, started: false, exited: false, unfollow };
+  const entry: Entry = { id, workspaceId, title, command, term, fit, el, started: false, exited: false, unfollow, url: null, decoder: new TextDecoder() };
   term.onData((d) => void api.terminalWrite(id, d).catch(() => {}));
   term.onResize(({ cols, rows }) => entry.started && void api.terminalResize(id, cols, rows).catch(() => {}));
   registry.set(id, entry);
@@ -70,7 +89,10 @@ function start(entry: Entry) {
       entry.term.cols,
       entry.term.rows,
       entry.command,
-      (data) => entry.term.write(data),
+      (data) => {
+        entry.term.write(data);
+        detectUrl(entry, data);
+      },
       () => {
         entry.exited = true;
         entry.term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
@@ -128,8 +150,12 @@ export function TerminalPanel({ workspaceId, visible }: { workspaceId: string; v
 
   const run = () => {
     if (!runScript) return toast("Set a run script in Settings → Repositories (or runner.json) to use Run", "info");
+    // One run terminal per workspace: running again restarts it.
+    const running = entries.find((e) => e.title === "run");
+    if (running) close(running);
     setActiveId(createEntry(workspaceId, "run", runScript).id);
   };
+  const runAlive = entries.some((e) => e.title === "run" && !e.exited);
 
   return (
     <div className="flex h-full flex-col">
@@ -160,12 +186,21 @@ export function TerminalPanel({ workspaceId, visible }: { workspaceId: string; v
           <Plus size={12} />
         </button>
         <div className="flex-1" />
+        {active?.url && (
+          <button
+            onClick={() => void openUrl(active.url!).catch((e) => toast(String(e)))}
+            title={`Open ${active.url} in the browser`}
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-accent hover:bg-hover"
+          >
+            {active.url.replace(/^https?:\/\//, "").replace(/\/$/, "")} <ArrowUpRight size={11} />
+          </button>
+        )}
         <button
           onClick={run}
           title={runScript ?? "No run script configured"}
           className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-muted hover:bg-hover hover:text-fg"
         >
-          <Play size={11} /> Run
+          {runAlive ? <RotateCw size={11} /> : <Play size={11} />} {runAlive ? "Restart" : "Run"}
         </button>
       </div>
       <div ref={hostRef} className="min-h-0 flex-1 bg-bg pt-2 pl-2.5" />

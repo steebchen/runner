@@ -360,7 +360,10 @@ const handlers: Record<string, (a: any) => any> = {
   repo_settings: () => ({ config: repoSettings, file: { name: "conductor.json", config: { scripts: { setup: "pnpm install" }, copy: [] } } }),
   save_repo_settings: (a) => void (repoSettings = a.config),
   terminal_open: (a) => {
-    setTimeout(() => send(a.onData, new TextEncoder().encode("\x1b[32m➜\x1b[0m tokyo git:(runner/tokyo) ").buffer), 50);
+    const out = a.command
+      ? `$ ${a.command}\r\n\r\n  \x1b[32mVITE\x1b[0m v8.3.1  ready in 212 ms\r\n\r\n  ➜  Local:   \x1b[36mhttp://localhost:\x1b[1m50120\x1b[22m/\x1b[0m\r\n`
+      : "\x1b[32m➜\x1b[0m tokyo git:(runner/tokyo) ";
+    setTimeout(() => send(a.onData, new TextEncoder().encode(out).buffer), 50);
   },
   setup_terminal_open: (a) => {
     setTimeout(() => send(a.onData, new TextEncoder().encode("Opening browser to sign in…\r\n").buffer), 100);
