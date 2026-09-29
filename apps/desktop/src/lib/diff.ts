@@ -32,10 +32,11 @@ export function lineDiff(oldText: string, newText: string): DiffLine[] {
         mid.push({ type: "ctx", text: midA[i] });
         i++;
         j++;
-      } else if (j < m && (i === n || dp[i * (m + 1) + j + 1] >= dp[(i + 1) * (m + 1) + j])) {
-        mid.push({ type: "add", text: midB[j++] });
-      } else {
+      } else if (i < n && (j === m || dp[(i + 1) * (m + 1) + j] >= dp[i * (m + 1) + j + 1])) {
+        // Removed lines before added ones, like git.
         mid.push({ type: "del", text: midA[i++] });
+      } else {
+        mid.push({ type: "add", text: midB[j++] });
       }
     }
   }

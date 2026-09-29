@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { Check, ChevronRight, CircleDashed, FileEdit, FileText, Globe, Loader2, Search, Terminal, Trash2, Wrench, X } from "lucide-react";
 import type { ToolCall, ToolContent } from "../lib/transcript";
 import { lineDiff } from "../lib/diff";
+import { highlightLine, languageFor } from "../lib/highlight";
 
 const kindIcon: Record<string, typeof Wrench> = {
   read: FileText,
@@ -69,9 +70,15 @@ function DiffStat({ content }: { content: ToolContent[] }) {
   );
 }
 
+function Code({ text, language }: { text: string; language: string | null }) {
+  const html = highlightLine(text, language);
+  return html === null ? <span className="min-w-0">{text}</span> : <span className="min-w-0" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
 function ToolContentView({ content }: { content: ToolContent }) {
   if (content.type === "diff") {
     const lines = lineDiff(content.oldText ?? "", content.newText);
+    const language = languageFor(content.path);
     return (
       <div className="font-mono text-[11.5px] leading-[1.55]">
         <div className="sticky top-0 bg-elevated px-2.5 py-1 text-[11px] text-muted">{content.path}</div>
@@ -79,14 +86,16 @@ function ToolContentView({ content }: { content: ToolContent }) {
           <div
             key={i}
             className={clsx(
-              "px-2.5 whitespace-pre-wrap",
-              l.type === "add" && "bg-add-bg text-add-fg",
-              l.type === "del" && "bg-del-bg text-del-fg",
+              "flex px-2.5 whitespace-pre-wrap",
+              l.type === "add" && "bg-add-bg",
+              l.type === "del" && "bg-del-bg",
               l.type === "gap" && "text-faint",
             )}
           >
-            {l.type === "add" ? "+ " : l.type === "del" ? "- " : "  "}
-            {l.text}
+            <span className={clsx("w-3.5 shrink-0 select-none", l.type === "add" && "text-add-fg", l.type === "del" && "text-del-fg")}>
+              {l.type === "add" ? "+" : l.type === "del" ? "-" : " "}
+            </span>
+            <Code text={l.text} language={l.type === "gap" ? null : language} />
           </div>
         ))}
       </div>
