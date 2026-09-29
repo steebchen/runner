@@ -81,6 +81,16 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       { id: "settings", label: "Settings", hint: "⌘,", icon: <SettingsIcon size={13} />, group: "Go to", run: () => actions.openSettings(true) },
       { id: "add-repo", label: "Add repository…", hint: "⇧⌘O", icon: <FolderPlus size={13} />, group: "Actions", run: () => void pickRepo() },
     );
+    for (const r of s.recents) {
+      out.push({
+        id: `recent:${r.path}`,
+        label: `Add ${r.name}`,
+        hint: r.path.replace(/^\/Users\/[^/]+/, "~"),
+        icon: <FolderPlus size={13} />,
+        group: "Recent repositories",
+        run: () => void actions.addRepo(r.path),
+      });
+    }
     return out;
   }, [s]);
 

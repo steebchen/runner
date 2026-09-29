@@ -27,6 +27,7 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/catalog.rs          Per-agent model/effort catalog, discovered from ACP
                           configOptions (short discovery session or live sessions)
   src/workspace.rs        runner.json config, workspace naming
+  src/recent.rs           "Recents" for Add repository, from Claude/Codex history
   src/env.rs              Login-shell env capture (GUI apps lack the user's PATH)
   src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
                           create -> archive (worktree removed, branch kept) -> restore)

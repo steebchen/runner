@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { FolderPlus } from "lucide-react";
 import { actions, startBadgeSync, toast, useStore } from "./lib/store";
 import { CommandPalette } from "./components/CommandPalette";
+import { AddRepoMenu } from "./components/AddRepoMenu";
 import { api } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
 import { WorkspaceView } from "./components/WorkspaceView";
@@ -130,12 +131,14 @@ export function App() {
             <div className="max-w-sm text-center text-muted">
               Run Claude Code, Codex and OpenCode in parallel, each in its own git worktree.
             </div>
-            <button
-              onClick={pickRepo}
-              className="mt-2 flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg"
-            >
-              <FolderPlus size={14} /> Add repository
-            </button>
+            <AddRepoMenu
+              align="center"
+              trigger={(open) => (
+                <button onClick={open} className="mt-2 flex items-center gap-2 rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg">
+                  <FolderPlus size={14} /> Add repository
+                </button>
+              )}
+            />
             {!hasRepos && (
               <div className="mt-8 w-full max-w-lg">
                 <div className="mb-2 text-xs font-medium text-muted">Your agents</div>

@@ -64,6 +64,8 @@ type State = {
   prs: Record<string, PrStatus | null>;
   /** models/efforts per agent, discovered from the agents themselves */
   catalogs: Record<string, Catalog>;
+  /** repos recently used with coding agents, for "Add repository" */
+  recents: { path: string; name: string; lastUsed: number }[];
 };
 
 export const useStore = create<State>(() => ({
@@ -84,6 +86,7 @@ export const useStore = create<State>(() => ({
   page: "workspace",
   prs: {},
   catalogs: {},
+  recents: [],
 }));
 
 const set = useStore.setState;
@@ -257,6 +260,7 @@ export const actions = {
     ]);
     applyTheme(settings.theme);
     void actions.detectAgents().then(() => actions.ensureCatalogs());
+    void actions.loadRecents();
     const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
     const sessions: Record<string, Session[]> = {};
     const selectedSession: Record<string, string> = {};
@@ -269,9 +273,24 @@ export const actions = {
     set({ ready: true, prs: prs ?? {}, catalogs: catalogs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
   },
 
+  async loadRecents() {
+    const recents = await api.recentProjects().catch(() => null);
+    if (recents) set({ recents });
+  },
+
+  async cloneRepo(spec: string) {
+    const repo = await guard(api.cloneRepo(spec));
+    if (repo) await actions.repoAdded(repo);
+    return !!repo;
+  },
+
   async addRepo(path: string) {
     const repo = await guard(api.addRepo(path));
-    if (!repo) return;
+    if (repo) await actions.repoAdded(repo);
+  },
+
+  async repoAdded(repo: Repo) {
+    set({ recents: get().recents.filter((r) => r.path !== repo.path) });
     if (!get().repos.some((r) => r.id === repo.id)) set({ repos: [...get().repos, repo].sort((a, b) => a.name.localeCompare(b.name)) });
     await actions.createWorkspace(repo.id);
   },

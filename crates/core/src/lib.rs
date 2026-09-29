@@ -10,6 +10,7 @@ pub mod events;
 pub mod forge;
 pub mod git;
 pub mod pty;
+pub mod recent;
 pub mod setup;
 pub mod title;
 pub mod store;
@@ -121,6 +122,32 @@ impl Core {
         };
         self.store.add_repo(&repo)?;
         Ok(repo)
+    }
+
+    /// Repositories the user recently used with coding agents, not yet added.
+    pub async fn recent_projects(&self, limit: usize) -> Result<Vec<recent::RecentProject>> {
+        let added: Vec<String> = self.store.repos()?.into_iter().map(|r| r.path).collect();
+        Ok(tokio::task::spawn_blocking(move || recent::recent_projects(&added, limit)).await?)
+    }
+
+    /// Clone `owner/repo` (or a URL) with `gh` into ~/projects (or ~) and add it.
+    pub async fn clone_repo(&self, spec: &str) -> Result<Repo> {
+        let spec = spec.trim().trim_end_matches(".git");
+        let name = spec.rsplit(['/', ':']).next().filter(|n| !n.is_empty()).ok_or_else(|| anyhow!("enter owner/repo or a URL"))?;
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("no home directory"))?;
+        let parent = if home.join("projects").is_dir() { home.join("projects") } else { home };
+        let dest = parent.join(name);
+        if !dest.exists() {
+            let out = tokio_command("gh")
+                .args(["repo", "clone", spec, &dest.to_string_lossy()])
+                .output()
+                .await
+                .map_err(|_| anyhow!("the GitHub CLI (gh) is required to clone"))?;
+            if !out.status.success() {
+                bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+            }
+        }
+        self.add_repo(&dest.to_string_lossy()).await
     }
 
     // ---- workspaces ----

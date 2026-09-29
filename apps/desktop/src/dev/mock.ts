@@ -211,6 +211,15 @@ const handlers: Record<string, (a: any) => any> = {
   "plugin:event|listen": () => 0,
   "plugin:event|unlisten": () => {},
   connect_session: () => {},
+  recent_projects: () => [
+    { path: "/Users/dev/projects/obsidian", name: "obsidian", lastUsed: Date.now() },
+    { path: "/Users/dev/projects/runner-e2e-test", name: "runner-e2e-test", lastUsed: Date.now() },
+    { path: "/Users/dev/projects/contracts", name: "contracts", lastUsed: Date.now() },
+  ],
+  clone_repo: async (a) => {
+    await sleep(800);
+    return { id: `r${Date.now()}`, name: a.spec.split("/").pop(), path: `/Users/dev/projects/${a.spec.split("/").pop()}`, defaultBranch: "main" };
+  },
   list_files: () => ["README.md", "package.json", "src/server/limiter.ts", "src/server/limiter.test.ts", "src/server/routes.ts", "src/app.tsx", "docs/rate-limits.md"],
   model_catalogs: () => catalogs,
   refresh_catalog: async (a) => {

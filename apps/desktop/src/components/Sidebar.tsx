@@ -24,7 +24,7 @@ import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, useStore, workspaceActivity } from "../lib/store";
 import type { PrStatus, Repo, Workspace } from "../lib/api";
-import { pickRepo } from "../App";
+import { AddRepoMenu } from "./AddRepoMenu";
 
 export function Sidebar() {
   const repos = useStore((s) => s.repos);
@@ -37,9 +37,14 @@ export function Sidebar() {
     >
       <ResizeHandle edge="right" onPointerDown={onPointerDown} />
       <div className="flex h-13 shrink-0 items-center justify-end px-2" data-tauri-drag-region>
-        <button onClick={pickRepo} title="Add repository (⇧⌘O)" className="rounded p-1.5 text-muted hover:bg-hover hover:text-fg">
-          <FolderPlus size={15} />
-        </button>
+        <AddRepoMenu
+          align="right"
+          trigger={(open) => (
+            <button onClick={open} title="Add repository" className="rounded p-1.5 text-muted hover:bg-hover hover:text-fg">
+              <FolderPlus size={15} />
+            </button>
+          )}
+        />
       </div>
       <div className="px-2 pb-2">
         <HomeButton />

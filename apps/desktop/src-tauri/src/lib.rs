@@ -69,6 +69,17 @@ async fn add_repo(app: State<'_, App>, path: String) -> Res<Repo> {
 }
 
 #[tauri::command]
+async fn recent_projects(app: State<'_, App>) -> Res<Value> {
+    let list = app.core.recent_projects(8).await.map_err(err)?;
+    serde_json::to_value(list).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clone_repo(app: State<'_, App>, spec: String) -> Res<Repo> {
+    app.core.clone_repo(&spec).await.map_err(err)
+}
+
+#[tauri::command]
 fn remove_repo(app: State<'_, App>, repo_id: String) -> Res<()> {
     app.core.store.remove_repo(&repo_id).map_err(err)
 }
@@ -406,6 +417,8 @@ pub fn run() {
             list_repos,
             add_repo,
             remove_repo,
+            recent_projects,
+            clone_repo,
             list_workspaces,
             create_workspace,
             archive_workspace,
