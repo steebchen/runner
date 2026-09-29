@@ -88,6 +88,8 @@ export type ConfigOption = {
   options?: SelectOption[] | { group: string; name: string; options: SelectOption[] }[];
 };
 
+export type SyncStatus = { ahead: number; behind: number; merging: boolean; conflicts: string[] };
+
 export type PermissionOption = { optionId: string; name: string; kind: string };
 
 // Raw ACP session/update payload; the transcript reducer interprets it.
@@ -176,6 +178,9 @@ export const api = {
     invoke<void>("set_config", { sessionId, configId, value }),
   answerQuestion: (sessionId: string, requestId: string, response: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     invoke<void>("answer_question", { sessionId, requestId, response }),
+  syncStatus: (workspaceId: string) => invoke<SyncStatus>("sync_status", { workspaceId }),
+  mergeBaseBranch: (workspaceId: string) => invoke<string[]>("merge_base_branch", { workspaceId }),
+  abortMerge: (workspaceId: string) => invoke<void>("abort_merge", { workspaceId }),
   restoreCheckpoint: (sessionId: string, commit: string) => invoke<string>("restore_checkpoint", { sessionId, commit }),
   setPlanMode: (sessionId: string, plan: boolean) => invoke<void>("set_plan_mode", { sessionId, plan }),
   changedFiles: (workspaceId: string) => invoke<ChangedFile[]>("changed_files", { workspaceId }),

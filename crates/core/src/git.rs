@@ -247,6 +247,60 @@ pub async fn push(wt: &Path, branch: &str) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    /// Commits on the branch that the base doesn't have, and vice versa.
+    pub ahead: u32,
+    pub behind: u32,
+    /// A merge is in progress (e.g. stopped on conflicts).
+    pub merging: bool,
+    pub conflicts: Vec<String>,
+}
+
+/// How the workspace branch relates to the latest known base branch.
+pub async fn sync_status(wt: &Path, base_branch: &str) -> Result<SyncStatus> {
+    let base = base_ref(wt, base_branch).await;
+    let counts = git(wt, &["rev-list", "--left-right", "--count", &format!("HEAD...{base}")]).await?;
+    let mut it = counts.split_whitespace().map(|n| n.parse().unwrap_or(0));
+    let (ahead, behind) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
+    let merging = git_ok(wt, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]).await;
+    let conflicts = git(wt, &["diff", "--name-only", "--diff-filter=U", "-z"])
+        .await
+        .map(|o| o.split('\0').filter(|f| !f.is_empty()).map(str::to_string).collect())
+        .unwrap_or_default();
+    Ok(SyncStatus { ahead, behind, merging, conflicts })
+}
+
+/// Merge the latest base branch into the workspace branch. Uncommitted
+/// changes are stashed around the merge. Returns the conflicted files (the
+/// merge is left in progress so they can be resolved), or none if it went
+/// through cleanly.
+pub async fn merge_base_branch(wt: &Path, base_branch: &str) -> Result<Vec<String>> {
+    let base = base_ref(wt, base_branch).await;
+    let out = tokio_command("git")
+        .args(["merge", "--autostash", "--no-edit", &base])
+        .current_dir(wt)
+        .output()
+        .await
+        .context("failed to run git")?;
+    if out.status.success() {
+        return Ok(Vec::new());
+    }
+    let conflicts = sync_status(wt, base_branch).await?.conflicts;
+    if conflicts.is_empty() {
+        let msg = String::from_utf8_lossy(&out.stderr);
+        let msg = if msg.trim().is_empty() { String::from_utf8_lossy(&out.stdout) } else { msg };
+        bail!("merge failed: {}", msg.trim());
+    }
+    Ok(conflicts)
+}
+
+pub async fn abort_merge(wt: &Path) -> Result<()> {
+    git(wt, &["merge", "--abort"]).await?;
+    Ok(())
+}
+
 /// Snapshot the worktree (committed, staged, unstaged and untracked files,
 /// not ignored ones) without touching HEAD, the index or any file. The
 /// snapshot is a commit whose parent is HEAD, kept alive by `refname`.
@@ -343,6 +397,41 @@ mod tests {
 
         remove_worktree(&repo, &wt).await.unwrap();
         assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn merges_the_base_branch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        init_repo(&repo).await;
+        let wt = tmp.path().join("wt");
+        create_worktree(&repo, &wt, "runner/sync", "main").await.unwrap();
+
+        // main moves on; the branch has its own commit and uncommitted work.
+        std::fs::write(repo.join("main.txt"), "m\n").unwrap();
+        git(&repo, &["add", "."]).await.unwrap();
+        git(&repo, &["commit", "-qm", "main work"]).await.unwrap();
+        std::fs::write(wt.join("b.txt"), "b\n").unwrap();
+        commit_all(&wt, "branch work").await.unwrap();
+        std::fs::write(wt.join("a.txt"), "one\nlocal\n").unwrap();
+
+        let st = sync_status(&wt, "main").await.unwrap();
+        assert_eq!((st.ahead, st.behind, st.merging), (1, 1, false));
+        assert!(merge_base_branch(&wt, "main").await.unwrap().is_empty());
+        assert!(wt.join("main.txt").exists());
+        assert_eq!(std::fs::read_to_string(wt.join("a.txt")).unwrap(), "one\nlocal\n", "local changes survive");
+        assert_eq!(sync_status(&wt, "main").await.unwrap().behind, 0);
+
+        // A conflicting change stops the merge with the file listed.
+        commit_all(&wt, "local a").await.unwrap();
+        std::fs::write(repo.join("a.txt"), "one\nupstream\n").unwrap();
+        commit_all(&repo, "upstream a").await.unwrap();
+        assert_eq!(merge_base_branch(&wt, "main").await.unwrap(), vec!["a.txt".to_string()]);
+        let st = sync_status(&wt, "main").await.unwrap();
+        assert!(st.merging && st.conflicts == vec!["a.txt".to_string()]);
+        abort_merge(&wt).await.unwrap();
+        assert!(!sync_status(&wt, "main").await.unwrap().merging);
     }
 
     #[tokio::test]

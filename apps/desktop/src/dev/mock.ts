@@ -115,6 +115,7 @@ async function streamReply(sessionId: string, text: string, images?: string[]) {
 
 let pricing: Record<string, any> = {};
 const attachments = new Map<string, string>();
+const mergeState: Record<string, any> = {};
 function usageRows() {
   const rows: any[] = [];
   let seed = 7;
@@ -238,6 +239,13 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  sync_status: (a) => mergeState[a.workspaceId] ?? { ahead: 3, behind: 2, merging: false, conflicts: [] },
+  merge_base_branch: async (a) => {
+    await sleep(600);
+    mergeState[a.workspaceId] = { ahead: 4, behind: 0, merging: true, conflicts: ["src/server/routes.ts"] };
+    return ["src/server/routes.ts"];
+  },
+  abort_merge: (a) => void delete mergeState[a.workspaceId],
   save_attachment: (a) => {
     const path = `/mock/attachments/${Date.now()}.png`;
     attachments.set(path, `data:${a.mimeType};base64,${a.data}`);

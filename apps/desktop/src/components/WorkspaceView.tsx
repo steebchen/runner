@@ -13,6 +13,7 @@ import { Chat } from "./Chat";
 import { ChangesPanel } from "./ChangesPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { PrActions } from "./PrActions";
+import { SyncBadge } from "./SyncBadge";
 import { Menu } from "./Menu";
 
 type Tab = "changes" | "terminal" | "setup";
@@ -53,6 +54,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
           <span className="flex items-center gap-1 truncate text-xs text-muted" data-tauri-drag-region>
             <GitBranch size={11} /> {ws.branch} → {ws.baseBranch}
           </span>
+          {ws.status !== "creating" && ws.status !== "failed" && <SyncBadge workspace={ws} sessionId={chatId} />}
         </div>
         <div className="flex-1" data-tauri-drag-region />
         {ws.status !== "creating" && ws.status !== "failed" && <PrActions workspace={ws} sessionId={chatId} />}

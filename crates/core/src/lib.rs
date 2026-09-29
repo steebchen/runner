@@ -67,6 +67,8 @@ pub struct Core {
     /// Last PR info sent per workspace, to only emit changes.
     prs: parking_lot::Mutex<std::collections::HashMap<String, Value>>,
     pr_refresh: tokio::sync::Notify,
+    /// When each repo's base branch was last fetched, to fetch at most once a minute.
+    fetched: parking_lot::Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
 
 impl Core {
@@ -86,6 +88,7 @@ impl Core {
             emitter,
             prs: Default::default(),
             pr_refresh: tokio::sync::Notify::new(),
+            fetched: Default::default(),
         }))
     }
 
@@ -566,6 +569,43 @@ impl Core {
             bail!("nothing to commit");
         }
         git::commit_all(&path, message).await
+    }
+
+    /// Fetch the base branch, unless that happened recently (or `force`).
+    async fn fetch_base(&self, ws: &Workspace, path: &Path, force: bool) {
+        let key = format!("{}\0{}", ws.repo_id, ws.base_branch);
+        let fresh = self.fetched.lock().get(&key).is_some_and(|t| t.elapsed().as_secs() < 60);
+        if fresh && !force {
+            return;
+        }
+        let _ = git::git(path, &["fetch", "-q", "origin", &ws.base_branch]).await;
+        self.fetched.lock().insert(key, std::time::Instant::now());
+    }
+
+    /// Ahead/behind the base branch, and any merge in progress.
+    pub async fn sync_status(&self, workspace_id: &str) -> Result<git::SyncStatus> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        self.fetch_base(&ws, &path, false).await;
+        git::sync_status(&path, &ws.base_branch).await
+    }
+
+    /// Merge the latest base branch in. Returns conflicted files, if any.
+    pub async fn merge_base_branch(&self, workspace_id: &str) -> Result<Vec<String>> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        if self.agents.workspace_busy(workspace_id) {
+            bail!("an agent is working in this workspace; wait for it to finish");
+        }
+        self.fetch_base(&ws, &path, true).await;
+        let result = git::merge_base_branch(&path, &ws.base_branch).await;
+        self.emitter.emit(Event::WorkspaceStatus { workspace_id: ws.id, status: "dirty".into() });
+        result
+    }
+
+    pub async fn abort_merge(&self, workspace_id: &str) -> Result<()> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        git::abort_merge(&path).await?;
+        self.emitter.emit(Event::WorkspaceStatus { workspace_id: ws.id, status: "dirty".into() });
+        Ok(())
     }
 
     pub async fn pr_status(&self, workspace_id: &str) -> Result<Option<Value>> {

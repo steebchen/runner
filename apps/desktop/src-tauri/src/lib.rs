@@ -209,6 +209,22 @@ async fn set_config(app: State<'_, App>, session_id: String, config_id: String, 
 }
 
 #[tauri::command]
+async fn sync_status(app: State<'_, App>, workspace_id: String) -> Res<Value> {
+    let st = app.core.sync_status(&workspace_id).await.map_err(err)?;
+    serde_json::to_value(st).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn merge_base_branch(app: State<'_, App>, workspace_id: String) -> Res<Vec<String>> {
+    app.core.merge_base_branch(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
+async fn abort_merge(app: State<'_, App>, workspace_id: String) -> Res<()> {
+    app.core.abort_merge(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
 async fn restore_checkpoint(app: State<'_, App>, session_id: String, commit: String) -> Res<String> {
     app.core.restore_checkpoint(&session_id, &commit).await.map_err(err)
 }
@@ -491,6 +507,9 @@ pub fn run() {
             answer_question,
             set_plan_mode,
             restore_checkpoint,
+            sync_status,
+            merge_base_branch,
+            abort_merge,
             save_attachment,
             import_attachment,
             attachment_data_url,
