@@ -1,41 +1,21 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
-import { api, type PrStatus, type Workspace } from "../lib/api";
+import { api, type Workspace } from "../lib/api";
+import { checkSummary, prAppearance } from "../lib/pr";
 import { actions, toast, useStore } from "../lib/store";
 
-function checkSummary(pr: PrStatus) {
-  let passed = 0;
-  const failed: string[] = [];
-  let pending = 0;
-  for (const c of pr.statusCheckRollup ?? []) {
-    const result = (c.conclusion || c.state || "").toUpperCase();
-    if (["SUCCESS", "NEUTRAL", "SKIPPED"].includes(result)) passed++;
-    else if (["FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED"].includes(result)) failed.push(c.name ?? c.context ?? "check");
-    else pending++;
-  }
-  return { passed, failed, pending };
-}
-
 export function PrActions({ workspace, sessionId }: { workspace: Workspace; sessionId?: string }) {
-  const [pr, setPr] = useState<PrStatus | null | undefined>(undefined);
+  const pr = useStore((s) => s.prs[workspace.id]);
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState(false);
-  const tick = useStore((s) => s.changesTick[workspace.id] ?? 0);
 
-  const refresh = useCallback(() => {
-    api
-      .prStatus(workspace.id)
-      .then(setPr)
-      .catch(() => setPr(null));
-  }, [workspace.id]);
-
+  // The core polls every minute; ask for a fresh read when the view opens.
   useEffect(() => {
-    refresh();
-    const id = setInterval(() => document.visibilityState === "visible" && refresh(), 30_000);
-    return () => clearInterval(id);
-  }, [refresh, tick]);
+    void api.refreshPrs().catch(() => {});
+  }, [workspace.id]);
+  const refresh = () => void api.refreshPrs().catch(() => {});
 
   const run = async (fn: () => Promise<unknown>, done?: string) => {
     setBusy(true);
@@ -83,8 +63,8 @@ export function PrActions({ workspace, sessionId }: { workspace: Workspace; sess
   return (
     <div className="flex items-center gap-1.5 text-xs">
       <button onClick={() => openUrl(pr.url)} className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-hover" title={pr.title}>
-        <GitPullRequest size={12} className={pr.state === "MERGED" ? "text-[#8957e5]" : pr.state === "OPEN" ? "text-add-fg" : "text-muted"} />#
-        {pr.number}
+        <GitPullRequest size={12} className={prAppearance(pr).color} />#{pr.number}
+        <span className={clsx("text-[11px]", prAppearance(pr).color)}>{prAppearance(pr).label}</span>
       </button>
       {pr.state === "OPEN" && (passed + failed.length + pending > 0) && (
         <span className="flex items-center gap-1.5 text-muted" title={failed.length ? `Failing: ${failed.join(", ")}` : undefined}>
@@ -143,7 +123,6 @@ export function PrActions({ workspace, sessionId }: { workspace: Workspace; sess
           </button>
         </>
       )}
-      {pr.state === "MERGED" && <span className="rounded bg-[#8957e5]/15 px-1.5 py-0.5 text-[#8957e5]">Merged</span>}
     </div>
   );
 }

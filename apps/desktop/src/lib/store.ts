@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, type AgentDef, type AgentStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
+import { api, type AgentDef, type AgentStatus, type PrStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
 import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
 
 export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
@@ -47,6 +47,8 @@ type State = {
   settings: Settings | null;
   agentStatus: AgentStatus[] | null;
   page: "workspace" | "settings" | "home";
+  /** latest PR per workspace; missing = not fetched yet, null = no PR */
+  prs: Record<string, PrStatus | null>;
 };
 
 export const useStore = create<State>(() => ({
@@ -65,6 +67,7 @@ export const useStore = create<State>(() => ({
   settings: null,
   agentStatus: null,
   page: "workspace",
+  prs: {},
 }));
 
 const set = useStore.setState;
@@ -98,6 +101,10 @@ function handleEvents(events: CoreEvent[]) {
     if (e.type === "scriptOutput") {
       if (scriptLog === s.scriptLog) scriptLog = { ...scriptLog };
       scriptLog[e.workspaceId] = (scriptLog[e.workspaceId] ?? "") + e.data;
+      continue;
+    }
+    if (e.type === "workspacePr") {
+      set({ prs: { ...get().prs, [e.workspaceId]: e.pr } });
       continue;
     }
     if (e.type === "workspaceTitle") {
@@ -175,7 +182,13 @@ export const actions = {
 
   async init() {
     await api.subscribe(handleEvents);
-    const [agents, repos, workspaces, settings] = await Promise.all([api.listAgents(), api.listRepos(), api.listWorkspaces(), api.getSettings()]);
+    const [agents, repos, workspaces, settings, prs] = await Promise.all([
+      api.listAgents(),
+      api.listRepos(),
+      api.listWorkspaces(),
+      api.getSettings(),
+      api.cachedPrs().catch(() => ({})),
+    ]);
     applyTheme(settings.theme);
     void actions.detectAgents();
     const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
@@ -187,7 +200,7 @@ export const actions = {
     });
     const views: Record<string, SessionView> = {};
     for (const l of lists) for (const x of l) views[x.id] = newView(false);
-    set({ ready: true, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
+    set({ ready: true, prs: prs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
   },
 
   async addRepo(path: string) {
@@ -262,8 +275,19 @@ export const actions = {
     return ws;
   },
 
+  async markUnread(workspaceId: string, unread = true) {
+    set({ workspaces: get().workspaces.map((w) => (w.id === workspaceId ? { ...w, unread } : w)) });
+    await guard(api.setWorkspaceUnread(workspaceId, unread));
+  },
+
+  async renameWorkspace(workspaceId: string, title: string) {
+    set({ workspaces: get().workspaces.map((w) => (w.id === workspaceId ? { ...w, title: title.trim() } : w)) });
+    await guard(api.renameWorkspace(workspaceId, title));
+  },
+
   selectWorkspace(workspaceId: string) {
     set({ selectedWorkspace: workspaceId, page: "workspace" });
+    if (get().workspaces.find((w) => w.id === workspaceId)?.unread) void actions.markUnread(workspaceId, false);
     const sid = get().selectedSession[workspaceId];
     if (sid) actions.selectSession(workspaceId, sid);
   },

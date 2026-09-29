@@ -246,11 +246,7 @@ function Composer({ sessionId }: { sessionId: string }) {
           <ConfigControl key={c.id} sessionId={sessionId} option={c} />
         ))}
         <div className="flex-1" />
-        {usage && usage.size > 0 && (
-          <span className="mr-1 text-[11px] text-faint" title={`${usage.used.toLocaleString()} / ${usage.size.toLocaleString()} tokens`}>
-            {Math.round((usage.used / usage.size) * 100)}%
-          </span>
-        )}
+        {usage && usage.size > 0 && <ContextUsage used={usage.used} size={usage.size} />}
         {running ? (
           <button onClick={() => actions.cancel(sessionId)} title="Stop (Esc)" className="rounded-md bg-fg p-1.5 text-bg">
             <Square size={12} fill="currentColor" />
@@ -271,6 +267,32 @@ function Composer({ sessionId }: { sessionId: string }) {
 }
 
 const EMPTY_CONFIG: ConfigOption[] = [];
+
+function compact(n: number) {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;
+  if (n >= 1000) return `${+(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+/** "28.5k / 1M" with a fill ring; turns amber/red as the window fills up. */
+function ContextUsage({ used, size }: { used: number; size: number }) {
+  const ratio = Math.min(1, used / size);
+  const r = 5.5;
+  const c = 2 * Math.PI * r;
+  const tone = ratio > 0.9 ? "text-del-fg" : ratio > 0.7 ? "text-warn" : "text-muted";
+  return (
+    <span
+      className={clsx("mr-1 flex shrink-0 items-center gap-1.5 text-[11px]", tone)}
+      title={`Context window: ${used.toLocaleString()} of ${size.toLocaleString()} tokens used (${Math.round(ratio * 100)}%)`}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" className="-rotate-90">
+        <circle cx="7" cy="7" r={r} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" />
+        <circle cx="7" cy="7" r={r} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray={`${ratio * c} ${c}`} strokeLinecap="round" />
+      </svg>
+      {compact(used)} / {compact(size)}
+    </span>
+  );
+}
 
 const isOnOff = (values: string[]) => values.length === 2 && values.includes("on") && values.includes("off");
 

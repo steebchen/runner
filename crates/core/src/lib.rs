@@ -54,6 +54,9 @@ pub struct Core {
     pub agents: Arc<Agents>,
     pub terminals: pty::Terminals,
     emitter: Emitter,
+    /// Last PR info sent per workspace, to only emit changes.
+    prs: parking_lot::Mutex<std::collections::HashMap<String, Value>>,
+    pr_refresh: tokio::sync::Notify,
 }
 
 impl Core {
@@ -65,7 +68,14 @@ impl Core {
         std::thread::spawn(|| {
             env::login_env();
         });
-        Ok(Arc::new(Self { store, agents, terminals: Default::default(), emitter }))
+        Ok(Arc::new(Self {
+            store,
+            agents,
+            terminals: Default::default(),
+            emitter,
+            prs: Default::default(),
+            pr_refresh: tokio::sync::Notify::new(),
+        }))
     }
 
     pub fn shutdown(&self) {
@@ -138,6 +148,7 @@ impl Core {
             created_at: now(),
             title: String::new(),
             archived_at: None,
+            unread: false,
         };
         self.store.add_workspace(&ws)?;
 
@@ -280,6 +291,14 @@ impl Core {
         Ok(())
     }
 
+    /// User-chosen title; replaces any auto-generated one.
+    pub fn rename_workspace(&self, workspace_id: &str, title: &str) -> Result<()> {
+        let title = title.trim();
+        self.store.set_workspace_title(workspace_id, title)?;
+        self.emitter.emit(Event::WorkspaceTitle { workspace_id: workspace_id.into(), title: title.into() });
+        Ok(())
+    }
+
     pub fn repo_config(&self, workspace_id: &str) -> Result<RepoConfig> {
         Ok(load_config(Path::new(&self.store.workspace(workspace_id)?.path)))
     }
@@ -304,6 +323,57 @@ impl Core {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         self.agents.close(session_id);
         self.store.delete_session(session_id)
+    }
+
+    // ---- pull requests ----
+
+    /// Poll GitHub for the PRs of every active workspace: once a minute, or
+    /// right away after `refresh_prs`. Must be called inside a tokio runtime.
+    pub fn start_pr_poller(self: &Arc<Self>) {
+        let this = self.clone();
+        tokio::spawn(async move {
+            loop {
+                this.poll_prs().await;
+                tokio::select! {
+                    _ = this.pr_refresh.notified() => {}
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {}
+                }
+            }
+        });
+    }
+
+    pub fn refresh_prs(&self) {
+        self.pr_refresh.notify_one();
+    }
+
+    /// Current PR info for all workspaces (for a UI that just (re)loaded).
+    pub fn cached_prs(&self) -> std::collections::HashMap<String, Value> {
+        self.prs.lock().clone()
+    }
+
+    pub async fn poll_prs(&self) {
+        let Ok(workspaces) = self.store.workspaces() else { return };
+        let Ok(repos) = self.store.repos() else { return };
+        for repo in repos {
+            let mine: Vec<&Workspace> = workspaces.iter().filter(|w| w.repo_id == repo.id).collect();
+            if mine.is_empty() {
+                continue;
+            }
+            // Not a GitHub repo, gh missing or signed out: just show nothing.
+            let Ok(prs) = forge::list_prs(Path::new(&repo.path)).await else { continue };
+            for ws in mine {
+                let pr = prs
+                    .iter()
+                    .find(|p| p["headRefName"] == ws.branch.as_str())
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let changed = self.prs.lock().get(&ws.id) != Some(&pr);
+                if changed {
+                    self.prs.lock().insert(ws.id.clone(), pr.clone());
+                    self.emitter.emit(Event::WorkspacePr { workspace_id: ws.id.clone(), pr });
+                }
+            }
+        }
     }
 
     // ---- git / review ----
@@ -349,17 +419,23 @@ impl Core {
             git::commit_all(&path, title).await?;
         }
         git::push(&path, &ws.branch).await?;
-        forge::create_pr(&path, &ws.base_branch, title, body).await
+        let url = forge::create_pr(&path, &ws.base_branch, title, body).await?;
+        self.refresh_prs();
+        Ok(url)
     }
 
     pub async fn push(&self, workspace_id: &str) -> Result<()> {
         let (ws, path) = self.ws_path(workspace_id)?;
-        git::push(&path, &ws.branch).await
+        git::push(&path, &ws.branch).await?;
+        self.refresh_prs();
+        Ok(())
     }
 
     pub async fn merge_pr(&self, workspace_id: &str) -> Result<()> {
         let (ws, path) = self.ws_path(workspace_id)?;
-        forge::merge_pr(&path, &ws.branch).await
+        forge::merge_pr(&path, &ws.branch).await?;
+        self.refresh_prs();
+        Ok(())
     }
 
     // ---- terminals ----

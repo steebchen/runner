@@ -20,10 +20,19 @@ async fn gh(cwd: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+pub const PR_FIELDS: &str =
+    "number,url,state,title,isDraft,mergeable,mergeStateStatus,statusCheckRollup,headRefName";
+
+/// Recent PRs of a repo (all states), newest first. One call covers every
+/// workspace branch of the repo.
+pub async fn list_prs(repo: &Path) -> Result<Vec<Value>> {
+    let out = gh(repo, &["pr", "list", "--state", "all", "--limit", "200", "--json", PR_FIELDS]).await?;
+    Ok(serde_json::from_str(&out)?)
+}
+
 /// PR for the branch, or `None` if there isn't one yet.
 pub async fn pr_status(wt: &Path, branch: &str) -> Result<Option<Value>> {
-    let fields = "number,url,state,title,isDraft,mergeable,mergeStateStatus,statusCheckRollup";
-    match gh(wt, &["pr", "view", branch, "--json", fields]).await {
+    match gh(wt, &["pr", "view", branch, "--json", PR_FIELDS]).await {
         Ok(out) => Ok(Some(serde_json::from_str(&out)?)),
         Err(e) if e.to_string().contains("no pull requests found") => Ok(None),
         Err(e) => Err(e),

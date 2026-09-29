@@ -30,6 +30,8 @@ pub struct Workspace {
     /// Short summary of the task, generated from the first prompt.
     pub title: String,
     pub archived_at: Option<i64>,
+    /// Manually marked unread; cleared when the workspace is opened.
+    pub unread: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -70,7 +72,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
     status TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     title TEXT NOT NULL DEFAULT '',
-    archived_at INTEGER
+    archived_at INTEGER,
+    unread INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -200,7 +203,7 @@ impl Store {
 
     pub fn workspace(&self, id: &str) -> Result<Workspace> {
         Ok(self.conn.lock().query_row(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces WHERE id = ?1",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at, unread FROM workspaces WHERE id = ?1",
             [id],
             row_to_workspace,
         )?)
@@ -209,7 +212,7 @@ impl Store {
     pub fn workspaces(&self) -> Result<Vec<Workspace>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at, unread FROM workspaces WHERE status != 'archived' ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map([], row_to_workspace)?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -219,10 +222,17 @@ impl Store {
     pub fn all_workspaces(&self) -> Result<Vec<Workspace>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at FROM workspaces ORDER BY COALESCE(archived_at, created_at) DESC",
+            "SELECT id, repo_id, name, branch, base_branch, path, status, created_at, title, archived_at, unread FROM workspaces ORDER BY COALESCE(archived_at, created_at) DESC",
         )?;
         let rows = stmt.query_map([], row_to_workspace)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn set_workspace_unread(&self, id: &str, unread: bool) -> Result<()> {
+        self.conn
+            .lock()
+            .execute("UPDATE workspaces SET unread = ?2 WHERE id = ?1", params![id, unread])?;
+        Ok(())
     }
 
     pub fn set_archived_at(&self, id: &str, at: Option<i64>) -> Result<()> {
@@ -319,6 +329,7 @@ fn migrate(conn: &Connection) -> Result<()> {
     };
     add_column("workspaces", "title", "TEXT NOT NULL DEFAULT ''")?;
     add_column("workspaces", "archived_at", "INTEGER")?;
+    add_column("workspaces", "unread", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -397,6 +408,7 @@ fn row_to_workspace(r: &rusqlite::Row) -> rusqlite::Result<Workspace> {
         created_at: r.get(7)?,
         title: r.get(8)?,
         archived_at: r.get(9)?,
+        unread: r.get(10)?,
     })
 }
 

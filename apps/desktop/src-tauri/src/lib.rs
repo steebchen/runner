@@ -84,6 +84,16 @@ async fn create_workspace(app: State<'_, App>, repo_id: String) -> Res<Workspace
 }
 
 #[tauri::command]
+fn rename_workspace(app: State<'_, App>, workspace_id: String, title: String) -> Res<()> {
+    app.core.rename_workspace(&workspace_id, &title).map_err(err)
+}
+
+#[tauri::command]
+fn set_workspace_unread(app: State<'_, App>, workspace_id: String, unread: bool) -> Res<()> {
+    app.core.store.set_workspace_unread(&workspace_id, unread).map_err(err)
+}
+
+#[tauri::command]
 fn list_all_workspaces(app: State<'_, App>) -> Res<Vec<Workspace>> {
     app.core.store.all_workspaces().map_err(err)
 }
@@ -188,6 +198,16 @@ async fn pr_status(app: State<'_, App>, workspace_id: String) -> Res<Option<Valu
 #[tauri::command]
 async fn create_pr(app: State<'_, App>, workspace_id: String, title: String, body: String) -> Res<String> {
     app.core.create_pr(&workspace_id, &title, &body).await.map_err(err)
+}
+
+#[tauri::command]
+fn cached_prs(app: State<'_, App>) -> std::collections::HashMap<String, Value> {
+    app.core.cached_prs()
+}
+
+#[tauri::command]
+fn refresh_prs(app: State<'_, App>) {
+    app.core.refresh_prs();
 }
 
 #[tauri::command]
@@ -307,6 +327,8 @@ pub fn run() {
             bus.start();
             let sink_bus = bus.clone();
             let core = Core::new(&data_dir, Arc::new(move |e| sink_bus.queue.lock().push(e)))?;
+            let poller = core.clone();
+            tauri::async_runtime::spawn(async move { poller.start_pr_poller() });
             app.manage(App { core, bus });
             Ok(())
         })
@@ -320,6 +342,8 @@ pub fn run() {
             create_workspace,
             archive_workspace,
             list_all_workspaces,
+            rename_workspace,
+            set_workspace_unread,
             restore_workspace,
             repo_config,
             list_sessions,
@@ -339,6 +363,8 @@ pub fn run() {
             pr_status,
             create_pr,
             merge_pr,
+            cached_prs,
+            refresh_prs,
             terminal_open,
             terminal_write,
             terminal_resize,

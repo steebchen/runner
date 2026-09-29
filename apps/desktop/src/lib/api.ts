@@ -14,6 +14,7 @@ export type Workspace = {
   createdAt: number;
   title: string;
   archivedAt: number | null;
+  unread: boolean;
 };
 
 export type Session = {
@@ -78,6 +79,7 @@ export type CoreEvent =
   | { type: "permissionResolved"; sessionId: string; requestId: string }
   | { type: "workspaceStatus"; workspaceId: string; status: string }
   | { type: "workspaceTitle"; workspaceId: string; title: string }
+  | { type: "workspacePr"; workspaceId: string; pr: PrStatus | null }
   | { type: "scriptOutput"; workspaceId: string; data: string };
 
 export type PrStatus = {
@@ -88,6 +90,7 @@ export type PrStatus = {
   isDraft: boolean;
   mergeable: string;
   mergeStateStatus: string;
+  headRefName?: string;
   statusCheckRollup: { name?: string; context?: string; status?: string; conclusion?: string; state?: string }[];
 };
 
@@ -126,6 +129,10 @@ export const api = {
   push: (workspaceId: string) => invoke<void>("push", { workspaceId }),
   prStatus: (workspaceId: string) => invoke<PrStatus | null>("pr_status", { workspaceId }),
   createPr: (workspaceId: string, title: string, body: string) => invoke<string>("create_pr", { workspaceId, title, body }),
+  cachedPrs: () => invoke<Record<string, PrStatus | null>>("cached_prs"),
+  refreshPrs: () => invoke<void>("refresh_prs"),
+  renameWorkspace: (workspaceId: string, title: string) => invoke<void>("rename_workspace", { workspaceId, title }),
+  setWorkspaceUnread: (workspaceId: string, unread: boolean) => invoke<void>("set_workspace_unread", { workspaceId, unread }),
   mergePr: (workspaceId: string) => invoke<void>("merge_pr", { workspaceId }),
   terminalOpen: (
     workspaceId: string,

@@ -18,7 +18,8 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/agent.rs            Agent sessions: spawn, resume, prompt, permissions,
                           plan/auto-accept mode mapping, auto titles
   src/git.rs              git CLI wrappers: worktrees, changed files, diffs
-  src/forge.rs            GitHub via the `gh` CLI (PR status/create/merge)
+  src/forge.rs            GitHub via the `gh` CLI (PR list/create/merge); `Core`
+                          polls `gh pr list` once per repo and emits WorkspacePr
   src/pty.rs              Terminals (portable-pty)
   src/store.rs            SQLite (WAL); batched, chunk-merged transcript log
   src/setup.rs            Agent detection (installed / signed in) + Settings
@@ -52,6 +53,8 @@ pnpm build                                 # Runner.app + .dmg
 pnpm --filter desktop dev                  # UI only; open http://localhost:1420 (uses dev/mock.ts)
 cargo run -p runner-core --example detect  # what agent CLIs/logins Runner sees
 cargo run -p runner-core --example e2e -- <repo> claude   # real end-to-end run
+# Real GitHub PR/checks e2e (opens, merges and closes PRs on a private fixture repo whose CI fails if a `FAIL` file exists):
+RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p runner-core --test github_e2e -- --ignored --nocapture
 ```
 
 ## Architecture rules

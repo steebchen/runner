@@ -19,8 +19,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
 const workspaces = [
-  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null },
-  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null },
+  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null, unread: false },
+  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null, unread: false },
 ];
 const archived: any[] = [
   { id: "w9", repoId: "r1", name: "oslo", branch: "runner/oslo", baseBranch: "main", path: "/tmp/oslo", status: "archived", createdAt: Date.now() - 9 * 86400e3, title: "Migrate to Postgres 17", archivedAt: Date.now() - 2 * 86400e3 },
@@ -51,6 +51,7 @@ const sessionHistory = (sid: string) => [
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "plan", entries: [{ content: "Add a token bucket limiter", priority: "high", status: "completed" }, { content: "Wire it into public routes", priority: "high", status: "completed" }, { content: "Add tests", priority: "medium", status: "in_progress" }] } },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit src/server/limiter.ts", kind: "edit", status: "completed", content: [{ type: "diff", path: "src/server/limiter.ts", oldText: "export const limits = {};\n", newText: "export const limits = {\n  public: { rate: 60, burst: 20 },\n};\n" }] } },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "agent_message_chunk", messageId: "m2", content: { type: "text", text: "Done. Public routes now go through a **token bucket** limiter:\n\n- `60` requests/minute with a burst of `20`\n- returns `429` with a `Retry-After` header\n\n```ts\napp.use('/api/public', rateLimit(limits.public));\n```" } } },
+  { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "usage_update", used: 184_300, size: 1_000_000 } },
   { type: "turnEnd", sessionId: sid, stopReason: "end_turn", ts: 0 },
 ];
 
@@ -141,7 +142,7 @@ const handlers: Record<string, (a: any) => any> = {
   },
   create_workspace: (a) => {
     const n = workspaces.length + 1;
-    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "", archivedAt: null };
+    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "", archivedAt: null, unread: false };
     workspaces.unshift(ws);
     sessions[ws.id] = [];
     setTimeout(() => {
@@ -160,6 +161,20 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: 0 }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  cached_prs: () => ({
+    w1: { number: 42, url: "https://github.com/acme/web/pull/42", state: "OPEN", title: "Add API rate limiting", isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", statusCheckRollup: [{ name: "ci", conclusion: "FAILURE" }, { name: "lint", conclusion: "SUCCESS" }] },
+    w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
+  }),
+  refresh_prs: () => {},
+  rename_workspace: (a) => {
+    const ws = workspaces.find((w) => w.id === a.workspaceId);
+    if (ws) ws.title = a.title;
+    emit({ type: "workspaceTitle", workspaceId: a.workspaceId, title: a.title });
+  },
+  set_workspace_unread: (a) => {
+    const ws: any = workspaces.find((w) => w.id === a.workspaceId);
+    if (ws) ws.unread = a.unread;
+  },
   set_config: (a) => {
     const o: any = config.find((c) => c.id === a.configId);
     if (o) o.currentValue = a.value;

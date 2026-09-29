@@ -20,6 +20,8 @@ pub enum Event {
     PermissionResolved { session_id: String, request_id: String },
     WorkspaceStatus { workspace_id: String, status: String },
     WorkspaceTitle { workspace_id: String, title: String },
+    /// Latest PR for the workspace's branch (`null` if none).
+    WorkspacePr { workspace_id: String, pr: Value },
     ScriptOutput { workspace_id: String, data: String },
 }
 
@@ -31,7 +33,7 @@ impl Event {
                 let kind = update.get("sessionUpdate").and_then(|k| k.as_str()).unwrap_or("");
                 let transient = matches!(
                     kind,
-                    "available_commands_update" | "usage_update" | "session_info_update"
+                    "available_commands_update" | "session_info_update"
                 );
                 (!transient).then_some(session_id)
             }
