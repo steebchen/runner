@@ -623,7 +623,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
       const items = commands
         .filter((c) => c.name.toLowerCase().includes(q))
         .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
-        .slice(0, 10)
+        .slice(0, 100)
         .map((c) => ({ value: c.name, label: `/${c.name}`, detail: c.description ?? c.input?.hint ?? "" }));
       setSuggest(items.length ? { start: 0, kind: "command", items } : null);
       setSuggestIndex(0);
@@ -653,6 +653,10 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
     requestAnimationFrame(() => el.setSelectionRange(pos, pos));
   };
   const suggestOpen = !!suggest && suggest.items.length > 0;
+  const suggestRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    suggestRef.current?.querySelector(`[data-index="${suggestIndex}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [suggestIndex]);
 
   // ↑/↓ in an empty (or recalled) composer walks through earlier prompts.
   const history = useRef<{ index: number; text: string } | null>(null);
@@ -681,10 +685,14 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
       )}
     >
       {suggestOpen && (
-        <div className="absolute bottom-full left-2 z-30 mb-1 w-[min(520px,90%)] overflow-hidden rounded-lg border border-border bg-elevated p-1 shadow-xl">
+        <div
+          ref={suggestRef}
+          className="absolute bottom-full left-2 z-30 mb-1 max-h-72 w-[min(560px,90%)] overflow-y-auto rounded-lg border border-border bg-elevated p-1 shadow-xl"
+        >
           {suggest.items.map((it, i) => (
             <button
               key={it.value}
+              data-index={i}
               onMouseDown={(e) => {
                 e.preventDefault();
                 accept(it);
