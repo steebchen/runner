@@ -437,6 +437,11 @@ impl Core {
         git::changed_files(&path, &ws.base_branch).await
     }
 
+    pub async fn list_files(&self, workspace_id: &str) -> Result<Vec<String>> {
+        let (_, path) = self.ws_path(workspace_id)?;
+        git::list_files(&path).await
+    }
+
     pub async fn file_diff(&self, workspace_id: &str, file: &str) -> Result<String> {
         let (ws, path) = self.ws_path(workspace_id)?;
         git::file_diff(&path, &ws.base_branch, file).await

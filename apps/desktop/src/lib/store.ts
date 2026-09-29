@@ -25,6 +25,8 @@ export type SessionView = {
   unread: boolean;
   /** plan mode (agent asks before acting); otherwise everything is auto-accepted */
   plan: boolean;
+  /** follow-ups typed while the agent was working, sent when the turn ends */
+  queued: string[];
 };
 
 const newView = (loaded: boolean): SessionView => ({
@@ -37,6 +39,7 @@ const newView = (loaded: boolean): SessionView => ({
   loaded,
   unread: false,
   plan: false,
+  queued: [],
 });
 
 type State = {
@@ -104,6 +107,7 @@ async function guard<T>(p: Promise<T>): Promise<T | undefined> {
 
 function handleEvents(events: CoreEvent[]) {
   const s = get();
+  const attention: Attention[] = [];
   const views = { ...s.views };
   let scriptLog = s.scriptLog;
   let changesTick = s.changesTick;
@@ -180,10 +184,49 @@ function handleEvents(events: CoreEvent[]) {
     }
     // Transcript events, including the ones handled above that also render.
     v.transcript = applyEvents(v.transcript, list);
-    if (list.some((e) => e.type === "turnEnd") && !isVisible(sessionId)) v.unread = true;
+    const finished = list.find((e) => e.type === "turnEnd");
+    const asks = list.find((e) => e.type === "question" || e.type === "permissionRequest");
+    if ((finished || asks) && !isVisible(sessionId)) {
+      if (finished) v.unread = true;
+      attention.push({ sessionId, kind: asks ? "input" : "done", detail: asks?.type === "question" ? asks.message : undefined });
+    }
+    // Send the next queued follow-up once a turn ends normally.
+    if (finished && finished.type === "turnEnd" && finished.stopReason === "end_turn" && v.queued.length) {
+      const [next, ...rest] = v.queued;
+      v.queued = rest;
+      setTimeout(() => void actions.send(sessionId, next), 0);
+    }
     views[sessionId] = v;
   }
   set({ views, scriptLog, changesTick, sessions });
+  for (const a of attention) notifyAttention(a);
+}
+
+type Attention = { sessionId: string; kind: "done" | "input"; detail?: string };
+
+/** Bold the workspace in the sidebar and post a macOS notification. */
+function notifyAttention(a: Attention) {
+  const s = get();
+  const ws = s.workspaces.find((w) => (s.sessions[w.id] ?? []).some((x) => x.id === a.sessionId));
+  if (!ws) return;
+  if (!ws.unread) void actions.markUnread(ws.id, true);
+  if (document.hasFocus() && s.selectedWorkspace === ws.id) return;
+  const title = ws.title || (s.sessions[ws.id] ?? []).find((x) => x.title)?.title || ws.name;
+  void notify(title, a.kind === "input" ? (a.detail ? `Question: ${a.detail}` : "Needs your input") : "Finished");
+}
+
+let notifyPermission: boolean | null = null;
+async function notify(title: string, body: string) {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  try {
+    const n = await import("@tauri-apps/plugin-notification");
+    if (notifyPermission === null) {
+      notifyPermission = (await n.isPermissionGranted()) || (await n.requestPermission()) === "granted";
+    }
+    if (notifyPermission) n.sendNotification({ title, body });
+  } catch {
+    // Notifications are best-effort.
+  }
 }
 
 function isVisible(sessionId: string) {
@@ -392,6 +435,17 @@ export const actions = {
     set({ views: { ...get().views, [sessionId]: { ...v, transcript, loaded: true } } });
   },
 
+  /** Queue a follow-up while the agent works; it's sent when the turn ends. */
+  queue(sessionId: string, text: string) {
+    const v = get().views[sessionId];
+    if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: [...v.queued, text] } } });
+  },
+
+  unqueue(sessionId: string, index: number) {
+    const v = get().views[sessionId];
+    if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: v.queued.filter((_, i) => i !== index) } } });
+  },
+
   async send(sessionId: string, text: string) {
     await guard(api.sendPrompt(sessionId, text));
   },
@@ -456,4 +510,22 @@ export function applyTheme(theme: Settings["theme"]) {
 export function enabledAgents(s: State) {
   const enabled = s.settings?.enabledAgents;
   return enabled ? s.agents.filter((a) => enabled.includes(a.id)) : s.agents;
+}
+
+/** Dock badge: how many workspaces want attention (waiting for input or unread). */
+export function startBadgeSync() {
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  let last = -1;
+  const update = async () => {
+    const s = get();
+    const count = s.workspaces.filter((w) => w.unread || workspaceActivity(s, w.id) === "needs-input").length;
+    if (count === last) return;
+    last = count;
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().setBadgeCount(count || undefined);
+    } catch {}
+  };
+  useStore.subscribe(() => void update());
+  void update();
 }

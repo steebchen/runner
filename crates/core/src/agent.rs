@@ -554,11 +554,8 @@ impl Agents {
             let result = async {
                 let conn = this.connect(&s).await?;
                 let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
-                conn.request(
-                    "session/prompt",
-                    json!({"sessionId": acp_id, "prompt": [{"type": "text", "text": text}]}),
-                )
-                .await
+                conn.request("session/prompt", json!({"sessionId": acp_id, "prompt": prompt_blocks(&text, &s.cwd)}))
+                    .await
             }
             .await;
             s.running.store(false, Ordering::SeqCst);
@@ -689,6 +686,32 @@ impl Agents {
     }
 }
 
+/// The prompt text plus every `@path` that names a file in the worktree:
+/// small text files are embedded (all our agents support embedded context),
+/// others are passed as links for the agent to read itself.
+fn prompt_blocks(text: &str, cwd: &std::path::Path) -> Value {
+    let mut blocks = vec![json!({"type": "text", "text": text})];
+    let mut seen = std::collections::HashSet::new();
+    for word in text.split_whitespace() {
+        let Some(path) = word.strip_prefix('@') else { continue };
+        let path = path.trim_end_matches([',', '.', ':', ';', ')', '!', '?']);
+        let abs = cwd.join(path);
+        if path.is_empty() || !abs.is_file() || !seen.insert(path.to_string()) {
+            continue;
+        }
+        let uri = format!("file://{}", abs.display());
+        let text = std::fs::metadata(&abs)
+            .ok()
+            .filter(|m| m.len() <= 200_000)
+            .and_then(|_| std::fs::read_to_string(&abs).ok());
+        blocks.push(match text {
+            Some(text) => json!({"type": "resource", "resource": {"uri": uri, "text": text, "mimeType": "text/plain"}}),
+            None => json!({"type": "resource_link", "uri": uri, "name": path}),
+        });
+    }
+    Value::Array(blocks)
+}
+
 /// Prefer "always" so the agent stops asking for the same tool.
 fn auto_allow_option(options: &Value) -> Option<String> {
     let options = options.as_array()?;
@@ -782,6 +805,19 @@ mod tests {
         let config = json!([select("mode", "build", &["build", "plan"])]);
         assert!(mode_changes(&config, false).is_empty());
         assert_eq!(mode_changes(&config, true), vec![("mode".into(), "plan".into())]);
+    }
+
+    #[test]
+    fn mentions_become_resource_links() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src/a.ts"), "x").unwrap();
+        let blocks = prompt_blocks("look at @src/a.ts, not @missing.ts or @src/a.ts again", dir.path());
+        let blocks = blocks.as_array().unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[1]["type"], "resource");
+        assert_eq!(blocks[1]["resource"]["text"], "x");
+        assert!(blocks[1]["resource"]["uri"].as_str().unwrap().ends_with("/src/a.ts"));
     }
 
     #[test]

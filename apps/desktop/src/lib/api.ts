@@ -148,6 +148,7 @@ export const api = {
     invoke<void>("answer_question", { sessionId, requestId, response }),
   setPlanMode: (sessionId: string, plan: boolean) => invoke<void>("set_plan_mode", { sessionId, plan }),
   changedFiles: (workspaceId: string) => invoke<ChangedFile[]>("changed_files", { workspaceId }),
+  listFiles: (workspaceId: string) => invoke<string[]>("list_files", { workspaceId }),
   fileDiff: (workspaceId: string, path: string) => invoke<string>("file_diff", { workspaceId, path }),
   revertFile: (workspaceId: string, path: string) => invoke<void>("revert_file", { workspaceId, path }),
   commitAll: (workspaceId: string, message: string) => invoke<void>("commit_all", { workspaceId, message }),

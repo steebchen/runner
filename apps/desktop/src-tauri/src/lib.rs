@@ -189,6 +189,11 @@ async fn changed_files(app: State<'_, App>, workspace_id: String) -> Res<Value> 
 }
 
 #[tauri::command]
+async fn list_files(app: State<'_, App>, workspace_id: String) -> Res<Vec<String>> {
+    app.core.list_files(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
 async fn file_diff(app: State<'_, App>, workspace_id: String, path: String) -> Res<String> {
     app.core.file_diff(&workspace_id, &path).await.map_err(err)
 }
@@ -346,21 +351,34 @@ fn open_path(path: String, app_name: Option<String>) -> Res<()> {
     status.success().then_some(()).ok_or_else(|| format!("could not open {path}"))
 }
 
-/// Default macOS menus plus "Settings…" (⌘,) in the app menu.
+/// Default macOS menus, plus Runner's own items. Custom items emit a "menu"
+/// event with their id for the UI to handle.
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
     let handle = app.handle();
     let menu = Menu::default(handle)?;
-    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
-        let settings = MenuItem::with_id(handle, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
-        app_menu.insert(&PredefinedMenuItem::separator(handle)?, 1)?;
-        app_menu.insert(&settings, 2)?;
+    let item = |id: &str, label: &str, accel: &str| MenuItem::with_id(handle, id, label, true, Some(accel));
+    for (i, entry) in menu.items()?.into_iter().enumerate() {
+        let MenuItemKind::Submenu(sub) = entry else { continue };
+        if i == 0 {
+            sub.insert(&PredefinedMenuItem::separator(handle)?, 1)?;
+            sub.insert(&item("settings", "Settings…", "CmdOrCtrl+,")?, 2)?;
+        } else if sub.text()? == "File" {
+            // Replace "Close Window" (⌘W) with chat-level actions.
+            for old in sub.items()? {
+                sub.remove(&old)?;
+            }
+            sub.append(&item("new-workspace", "New Workspace", "CmdOrCtrl+N")?)?;
+            sub.append(&item("new-chat", "New Chat", "CmdOrCtrl+T")?)?;
+            sub.append(&PredefinedMenuItem::separator(handle)?)?;
+            sub.append(&item("palette", "Command Palette…", "CmdOrCtrl+K")?)?;
+            sub.append(&PredefinedMenuItem::separator(handle)?)?;
+            sub.append(&item("close-chat", "Close Chat", "CmdOrCtrl+W")?)?;
+        }
     }
     app.set_menu(menu)?;
     app.on_menu_event(|app, event| {
-        if event.id().as_ref() == "settings" {
-            let _ = app.emit("open-settings", ());
-        }
+        let _ = app.emit("menu", event.id().as_ref());
     });
     Ok(())
 }
@@ -369,6 +387,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let bus = Arc::new(EventBus::default());
@@ -408,6 +427,7 @@ pub fn run() {
             set_plan_mode,
             changed_files,
             file_diff,
+            list_files,
             revert_file,
             commit_all,
             push,

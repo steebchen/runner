@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowUp, Brain, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, ListChecks, ShieldQuestion, Square, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, ListChecks, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, useStore, type PendingQuestion, type Permission } from "../lib/store";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -10,6 +10,7 @@ import { Markdown } from "./Markdown";
 import { ToolCallCard } from "./ToolCallCard";
 import { ModelPicker, cycleEffort, toggleFast } from "./ModelPicker";
 import { effortOption, fastOption, modelOption } from "../lib/models";
+import { mentionAt, rankFiles, workspaceFiles } from "../lib/mentions";
 
 export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceId: string }) {
   const items = useStore((s) => s.views[sessionId]?.transcript.items) ?? EMPTY;
@@ -19,6 +20,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
   const questions = useStore((s) => s.views[sessionId]?.questions) ?? EMPTY_QUESTIONS;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
 
   const virtualizer = useVirtualizer({
     count: items.length,
@@ -36,11 +38,28 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
 
   const onScroll = () => {
     const el = scrollRef.current;
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    if (stick.current !== atBottom) setAtBottom(stick.current);
+  };
+  const jumpToLatest = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stick.current = true;
+    setAtBottom(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      {!atBottom && items.length > 0 && (
+        <button
+          onClick={jumpToLatest}
+          className="absolute bottom-40 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-muted shadow-md hover:text-fg"
+        >
+          <ArrowDown size={12} /> Jump to latest
+        </button>
+      )}
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
         {loaded && items.length === 0 && <EmptyChat state={state} />}
         <div className="relative mx-auto w-full max-w-3xl" style={{ height: virtualizer.getTotalSize() }}>
@@ -97,8 +116,9 @@ const Row = memo(function Row({ item }: { item: Item }) {
       );
     case "assistant":
       return (
-        <div className="py-2">
+        <div className="group relative py-2">
           <Markdown text={item.text} />
+          <CopyButton text={item.text} />
         </div>
       );
     case "thought":
@@ -126,12 +146,18 @@ const Row = memo(function Row({ item }: { item: Item }) {
           ))}
         </div>
       );
-    case "turnEnd":
-      return item.stopReason === "end_turn" ? (
-        <div className="h-2" />
-      ) : (
-        <div className="py-1 text-xs text-muted">Stopped ({item.stopReason.replace(/_/g, " ")})</div>
+    case "turnEnd": {
+      const took = item.startedAt ? duration(item.ts - item.startedAt) : null;
+      return (
+        <div className="flex items-center gap-2 py-2 text-[11px] text-faint">
+          <span className="h-px flex-1 bg-border" />
+          {item.stopReason === "end_turn"
+            ? took && `Worked for ${took}`
+            : `Stopped (${item.stopReason.replace(/_/g, " ")})${took ? ` after ${took}` : ""}`}
+          <span className="h-px flex-1 bg-border" />
+        </div>
       );
+    }
     case "error":
       return (
         <div className="selectable my-2 rounded-md border border-del-fg/30 bg-del-bg px-3 py-2 font-mono text-xs whitespace-pre-wrap text-del-fg">
@@ -140,6 +166,32 @@ const Row = memo(function Row({ item }: { item: Item }) {
       );
   }
 });
+
+function duration(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(text).then(() => {
+          setDone(true);
+          setTimeout(() => setDone(false), 1200);
+        });
+      }}
+      title="Copy"
+      className="absolute -right-7 top-2 rounded p-1 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg"
+    >
+      {done ? <Check size={12} /> : <Copy size={12} />}
+    </button>
+  );
+}
 
 function Thought({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -222,20 +274,96 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
     el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
   }, [draft]);
 
+  const queued = useStore((s) => s.views[sessionId]?.queued) ?? EMPTY_QUEUE;
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [matches, setMatches] = useState<string[]>([]);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
   const send = () => {
     const text = draft.trim();
-    if (!text || running) return;
+    if (!text) return;
     actions.setDraft(sessionId, "");
-    void actions.send(sessionId, text);
+    // While the agent works, follow-ups wait and go out when the turn ends.
+    if (running) actions.queue(sessionId, text);
+    else void actions.send(sessionId, text);
   };
 
+  const updateMention = (text: string, caret: number) => {
+    const m = mentionAt(text, caret);
+    setMention(m);
+    if (!m) return;
+    void workspaceFiles(workspaceId).then((files) => {
+      setMatches(rankFiles(files, m.query));
+      setMentionIndex(0);
+    });
+  };
+
+  const insertMention = (path: string) => {
+    const el = ref.current;
+    if (!el || !mention) return;
+    const caret = el.selectionStart;
+    const next = `${draft.slice(0, mention.start)}@${path} ${draft.slice(caret)}`;
+    actions.setDraft(sessionId, next);
+    setMention(null);
+    const pos = mention.start + path.length + 2;
+    requestAnimationFrame(() => el.setSelectionRange(pos, pos));
+  };
+  const mentionOpen = !!mention && matches.length > 0;
+
   return (
-    <div className="rounded-xl border border-border bg-elevated shadow-sm focus-within:border-accent/60">
+    <div className="relative rounded-xl border border-border bg-elevated shadow-sm focus-within:border-accent/60">
+      {mentionOpen && (
+        <div className="absolute bottom-full left-2 z-30 mb-1 w-[min(520px,90%)] overflow-hidden rounded-lg border border-border bg-elevated p-1 shadow-xl">
+          {matches.map((f, i) => {
+            const slash = f.lastIndexOf("/");
+            return (
+              <button
+                key={f}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(f);
+                }}
+                onMouseEnter={() => setMentionIndex(i)}
+                className={clsx("flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs", i === mentionIndex && "bg-hover")}
+              >
+                <span className="font-medium">{f.slice(slash + 1)}</span>
+                <span className="truncate text-muted">{slash > 0 ? f.slice(0, slash) : ""}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {queued.length > 0 && (
+        <div className="space-y-1 border-b border-border px-3 pt-2 pb-2">
+          {queued.map((q, i) => (
+            <div key={i} className="group flex items-center gap-2 text-xs text-muted">
+              <Clock size={11} className="shrink-0" />
+              <span className="truncate">{q}</span>
+              <span className="flex-1" />
+              <button onClick={() => actions.unqueue(sessionId, i)} className="invisible rounded p-0.5 group-hover:visible hover:bg-hover hover:text-fg" title="Remove from queue">
+                <X size={11} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         ref={ref}
         value={draft}
-        onChange={(e) => actions.setDraft(sessionId, e.target.value)}
+        onChange={(e) => {
+          actions.setDraft(sessionId, e.target.value);
+          updateMention(e.target.value, e.target.selectionStart);
+        }}
+        onBlur={() => setMention(null)}
         onKeyDown={(e) => {
+          if (mentionOpen && ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
+            e.preventDefault();
+            if (e.key === "ArrowDown") setMentionIndex((i) => Math.min(matches.length - 1, i + 1));
+            else if (e.key === "ArrowUp") setMentionIndex((i) => Math.max(0, i - 1));
+            else if (e.key === "Escape") setMention(null);
+            else insertMention(matches[mentionIndex]);
+            return;
+          }
           if (e.metaKey && e.shiftKey && (e.key === "/" || e.key === "?")) {
             e.preventDefault();
             cycleEffort(sessionId, config);
@@ -253,7 +381,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           }
         }}
         rows={1}
-        placeholder={running ? "Agent is working… (Esc to stop)" : "Ask the agent to do something"}
+        placeholder={running ? "Queue a follow-up… (Esc to stop)" : "Ask the agent to do something · @ to mention a file"}
         className="selectable block max-h-72 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13.5px] leading-relaxed outline-none placeholder:text-faint"
       />
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2 whitespace-nowrap">
@@ -300,6 +428,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
 }
 
 const EMPTY_CONFIG: ConfigOption[] = [];
+const EMPTY_QUEUE: string[] = [];
 
 function compact(n: number) {
   if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;

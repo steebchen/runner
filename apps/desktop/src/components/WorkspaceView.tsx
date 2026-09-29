@@ -21,6 +21,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const hasSetupLog = useStore((s) => !!s.scriptLog[workspaceId]);
   const failed = useStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.status === "failed");
   const editor = useStore((s) => s.settings?.editor);
+  const sessionTitle = useStore((s) => (s.sessions[workspaceId] ?? []).find((x) => x.title)?.title ?? "");
   const [panel, setPanel] = useState(true);
   const [tab, setTab] = useState<Tab>("changes");
   useEffect(() => {
@@ -39,7 +40,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-13 shrink-0 items-center gap-2 border-b border-border px-3" data-tauri-drag-region>
         <div className="flex min-w-0 items-center gap-2" data-tauri-drag-region>
-          <span className="font-medium">{ws.title || ws.name}</span>
+          <span className="font-medium">{ws.title || sessionTitle || ws.name}</span>
           <span className="flex items-center gap-1 truncate text-xs text-muted" data-tauri-drag-region>
             <GitBranch size={11} /> {ws.branch} → {ws.baseBranch}
           </span>

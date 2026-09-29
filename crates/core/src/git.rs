@@ -223,6 +223,15 @@ pub async fn revert_file(wt: &Path, base_branch: &str, path: &str) -> Result<()>
     Ok(())
 }
 
+/// Tracked and untracked (not ignored) files, for @-mentions.
+pub async fn list_files(wt: &Path) -> Result<Vec<String>> {
+    let out = git(wt, &["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).await?;
+    let mut files: Vec<String> = out.split('\0').filter(|f| !f.is_empty()).map(str::to_string).collect();
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
 pub async fn has_uncommitted(wt: &Path) -> Result<bool> {
     Ok(!git(wt, &["status", "--porcelain"]).await?.trim().is_empty())
 }

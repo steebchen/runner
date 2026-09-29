@@ -82,12 +82,16 @@ Performance notes:
 
 | | |
 |---|---|
+| ⌘K | Command palette |
 | ⌘N | New workspace |
+| ⌘T / ⌘W | New chat / close chat |
+| ⌘⇧[ / ⌘⇧] | Previous / next chat |
 | ⌘1–9 | Switch workspace |
 | ⌘O | Open workspace in editor |
 | ⇧⌘O | Add repository |
 | ⌘, | Settings |
-| Enter / ⇧Enter | Send / newline |
+| Enter / ⇧Enter | Send (queues while the agent works) / newline |
+| @ | Mention a file |
 | Esc | Stop agent |
 | ⇧Tab | Toggle plan mode / auto-accept |
 

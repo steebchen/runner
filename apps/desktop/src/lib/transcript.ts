@@ -18,12 +18,12 @@ export type ToolCall = {
 export type PlanEntry = { content: string; priority: string; status: "pending" | "in_progress" | "completed" };
 
 export type Item =
-  | { kind: "user"; key: string; text: string }
+  | { kind: "user"; key: string; text: string; ts: number }
   | { kind: "assistant"; key: string; messageId?: string; text: string }
   | { kind: "thought"; key: string; messageId?: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
   | { kind: "plan"; key: string; entries: PlanEntry[] }
-  | { kind: "turnEnd"; key: string; stopReason: string }
+  | { kind: "turnEnd"; key: string; stopReason: string; ts: number; startedAt: number | null }
   | { kind: "error"; key: string; text: string };
 
 export type Transcript = {
@@ -52,11 +52,23 @@ export function applyEvents(t: Transcript, events: CoreEvent[]): Transcript {
   for (const e of events) {
     switch (e.type) {
       case "userMessage":
-        items.push({ kind: "user", key: key(), text: e.text });
+        items.push({ kind: "user", key: key(), text: e.text, ts: e.ts });
         planIndex = null;
         break;
       case "turnEnd":
-        items.push({ kind: "turnEnd", key: key(), stopReason: e.stopReason });
+        {
+          // Pair with the prompt that started this turn, for "Worked for …".
+          let startedAt: number | null = null;
+          for (let i = items.length - 1; i >= 0; i--) {
+            const it = items[i];
+            if (it.kind === "turnEnd") break;
+            if (it.kind === "user") {
+              startedAt = it.ts;
+              break;
+            }
+          }
+          items.push({ kind: "turnEnd", key: key(), stopReason: e.stopReason, ts: e.ts, startedAt });
+        }
         break;
       case "sessionState":
         if (e.state === "error" && e.error) items.push({ kind: "error", key: key(), text: e.error });
