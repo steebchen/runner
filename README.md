@@ -6,12 +6,14 @@ Runner uses the agent CLIs you already have and the subscriptions you're already
 
 ## Features
 
-- **Workspaces**: every task gets its own git worktree and branch (`runner/<city>`), created from the latest upstream base branch.
-- **Agents over ACP**: Claude Code, Codex and OpenCode all speak the [Agent Client Protocol](https://agentclientprotocol.com), so the chat UI, tool calls, plans, permission prompts and model/mode pickers work the same for every agent.
-- **Review**: the changed-files list and diff against the merge base, line comments sent back to the agent, and per-file discard.
-- **Ship**: create a PR (commit, push and `gh pr create`), view CI checks, "fix failing checks", merge, and archive.
-- **Terminals**: per-workspace shells plus a one-click `run` script.
-- **Settings**: detects installed agents and their login status, installs or signs in through an embedded terminal, and sets the default agent, branch prefix, workspaces folder, editor and theme.
+- **Workspaces**: every task gets its own git worktree and branch, created from the latest upstream base branch. The branch is renamed after the task (`runner/fix-login-bug`) until it's pushed. Start from scratch, from an existing branch, or from a pull request (⇧⌘N).
+- **Agents over ACP**: Claude Code, Codex and OpenCode all speak the [Agent Client Protocol](https://agentclientprotocol.com), so the chat UI, tool calls, plans, questions, slash commands and model pickers work the same for every agent.
+- **Chat**: attach screenshots (paste, pick or drop), `@`-mention files, `/` commands, queue or steer follow-ups, recall earlier prompts with ↑, find in chat (⌘F), and restore the workspace's files to how they were before any message (checkpoints, with undo).
+- **Review**: changed files and syntax-highlighted diffs against the merge base, "viewed" marks, line comments sent back to the agent, and per-file discard. The sidebar shows each workspace's `+/−` lines.
+- **Stay in sync**: see when the base branch moved on and merge it in with one click; conflicts can be handed to the agent.
+- **Ship**: create a PR (with an AI-written title and description if you like), push with generated commit messages, view CI checks, "fix failing checks", merge, and archive merged workspaces.
+- **Terminals**: per-workspace shells and a one-click `run` script, with clickable links and an "open" button for the dev server it starts. Each workspace gets its own `RUNNER_PORT` range.
+- **Settings**: detects installed agents and their login status, installs or signs in through an embedded terminal; per-repository setup/run/archive scripts and files to copy; default models, branch prefix, workspaces folder, editor and theme. ⌘/ lists all shortcuts.
 
 ## Requirements
 
