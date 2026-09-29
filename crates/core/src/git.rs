@@ -81,6 +81,52 @@ pub async fn add_worktree(repo: &Path, path: &Path, branch: &str) -> Result<()> 
     Ok(())
 }
 
+/// Stash uncommitted work (including untracked, not ignored, files) under a
+/// recognizable message. Returns false when there was nothing to save.
+pub async fn stash_save(wt: &Path, message: &str) -> Result<bool> {
+    if !has_uncommitted(wt).await? {
+        return Ok(false);
+    }
+    git(wt, &["stash", "push", "--include-untracked", "-m", message]).await?;
+    Ok(true)
+}
+
+/// The `stash@{n}` whose message contains `marker`, if any. Stashes are shared
+/// by all worktrees of a repository.
+pub async fn stash_find(repo: &Path, marker: &str) -> Option<String> {
+    let list = git(repo, &["stash", "list", "--format=%gd%x00%gs"]).await.ok()?;
+    list.lines().find_map(|line| {
+        let (reference, subject) = line.split_once('\0')?;
+        subject.contains(marker).then(|| reference.to_string())
+    })
+}
+
+pub async fn stash_pop(wt: &Path, reference: &str) -> Result<()> {
+    git(wt, &["stash", "pop", reference]).await?;
+    Ok(())
+}
+
+/// Remove a worktree quickly: move the directory aside (instant on the same
+/// disk), let git forget it, and delete the files in the background.
+pub async fn discard_worktree(repo: &Path, path: &Path, trash: &Path) -> Result<()> {
+    let _ = tokio::fs::create_dir_all(trash).await;
+    let name = format!(
+        "{}-{}",
+        path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        crate::store::now()
+    );
+    let target = trash.join(name);
+    if tokio::fs::rename(path, &target).await.is_err() {
+        // Different volume or similar: fall back to git doing the deletion.
+        return remove_worktree(repo, path).await;
+    }
+    git(repo, &["worktree", "prune"]).await?;
+    tokio::task::spawn_blocking(move || {
+        let _ = std::fs::remove_dir_all(&target);
+    });
+    Ok(())
+}
+
 pub async fn remove_worktree(repo: &Path, path: &Path) -> Result<()> {
     git(repo, &["worktree", "remove", "--force", &path.to_string_lossy()]).await?;
     Ok(())

@@ -233,13 +233,19 @@ export const actions = {
   },
 
   async archiveWorkspace(workspaceId: string) {
-    const ok = await guard(api.archiveWorkspace(workspaceId).then(() => true));
-    if (!ok) return false;
-    const workspaces = get().workspaces.filter((w) => w.id !== workspaceId);
+    // Optimistic: disappear right away, come back if archiving fails.
+    const before = get();
+    const ws = before.workspaces.find((w) => w.id === workspaceId);
+    const workspaces = before.workspaces.filter((w) => w.id !== workspaceId);
     set({
       workspaces,
-      selectedWorkspace: get().selectedWorkspace === workspaceId ? (workspaces[0]?.id ?? null) : get().selectedWorkspace,
+      selectedWorkspace: before.selectedWorkspace === workspaceId ? (workspaces[0]?.id ?? null) : before.selectedWorkspace,
     });
+    const ok = await guard(api.archiveWorkspace(workspaceId).then(() => true));
+    if (!ok && ws) {
+      set({ workspaces: [ws, ...get().workspaces.filter((w) => w.id !== ws.id)].sort((a, b) => b.createdAt - a.createdAt) });
+      return false;
+    }
     return true;
   },
 

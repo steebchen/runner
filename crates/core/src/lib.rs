@@ -32,6 +32,11 @@ use crate::store::now;
 use crate::setup::Settings;
 use crate::workspace::{load_config, pick_name, RepoConfig};
 
+/// Stash message used to keep a workspace's uncommitted work while archived.
+fn archive_marker(workspace_id: &str) -> String {
+    format!("runner-archive:{workspace_id}")
+}
+
 /// Persists transcript events, then forwards everything to the UI sink.
 #[derive(Clone)]
 pub struct Emitter {
@@ -218,6 +223,14 @@ impl Core {
             git::create_worktree(repo_path, &path, &ws.branch, &ws.base_branch).await?;
         } else {
             git::add_worktree(repo_path, &path, &ws.branch).await?;
+            if let Some(stash) = git::stash_find(repo_path, &archive_marker(&ws.id)).await {
+                if let Err(e) = git::stash_pop(&path, &stash).await {
+                    self.emitter.emit(Event::ScriptOutput {
+                        workspace_id: ws.id.clone(),
+                        data: format!("Couldn't re-apply the changes saved when archiving ({e:#}). They're kept in `git stash` as {stash}.\n"),
+                    });
+                }
+            }
         }
         let config = load_config(&path);
         for file in &config.copy {
@@ -281,11 +294,16 @@ impl Core {
         for s in self.store.sessions(&ws.id)? {
             self.agents.close(&s.id);
         }
-        if Path::new(&ws.path).exists() {
-            if let Some(script) = load_config(Path::new(&ws.path)).scripts.archive {
+        let path = Path::new(&ws.path);
+        if path.exists() {
+            if let Some(script) = load_config(path).scripts.archive {
                 self.run_script(&ws, &repo.path, &script).await;
             }
-            git::remove_worktree(Path::new(&repo.path), Path::new(&ws.path)).await?;
+            // Never throw away work: uncommitted changes go to a stash that
+            // restore re-applies. If that fails, don't archive.
+            git::stash_save(path, &archive_marker(&ws.id)).await?;
+            let trash = path.parent().and_then(Path::parent).unwrap_or(path).join(".trash");
+            git::discard_worktree(Path::new(&repo.path), path, &trash).await?;
         }
         self.store.set_workspace_status(&ws.id, "archived")?;
         self.store.set_archived_at(&ws.id, Some(now()))?;

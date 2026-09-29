@@ -242,8 +242,8 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           onClick={() => actions.togglePlan(sessionId)}
           title={
             plan
-              ? "Plan mode: the agent plans first and asks before making changes. Shift+Tab to switch."
-              : "Auto-accept: the agent may edit files and run commands without asking. Shift+Tab to switch."
+              ? "Plan: the agent plans first and asks before making changes. Shift+Tab to switch."
+              : "Auto: the agent edits files and runs commands without asking. Shift+Tab to switch."
           }
           className={clsx(
             "flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs font-medium",
@@ -251,7 +251,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           )}
         >
           {plan ? <ListChecks size={12} /> : <ChevronsRight size={12} />}
-          {plan ? "Plan mode" : "Auto-accept"}
+          {plan ? "Plan" : "Auto"}
           <kbd className="ml-0.5 font-sans font-normal text-faint">⇧⇥</kbd>
         </button>
         <span className="mx-0.5 h-3.5 w-px bg-border" />

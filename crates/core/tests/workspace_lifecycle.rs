@@ -42,6 +42,9 @@ async fn create_archive_restore() {
     let path = Path::new(&ws.path);
     std::fs::write(path.join("work.txt"), "hello").unwrap();
     git::commit_all(path, "work").await.unwrap();
+    // Uncommitted edits and new files must survive archive + restore.
+    std::fs::write(path.join("work.txt"), "hello, edited").unwrap();
+    std::fs::write(path.join("draft.txt"), "untracked").unwrap();
     core.archive_workspace(&ws.id).await.unwrap();
     assert!(!path.exists());
     let archived = core.store.workspace(&ws.id).unwrap();
@@ -54,7 +57,9 @@ async fn create_archive_restore() {
     let restored = core.restore_workspace(&ws.id).await.unwrap();
     assert_eq!(restored.status, "creating");
     wait_status(&core, &ws.id, "ready").await;
-    assert_eq!(std::fs::read_to_string(path.join("work.txt")).unwrap(), "hello");
+    assert_eq!(std::fs::read_to_string(path.join("work.txt")).unwrap(), "hello, edited");
+    assert_eq!(std::fs::read_to_string(path.join("draft.txt")).unwrap(), "untracked");
+    assert!(git::stash_find(&repo, "runner-archive:").await.is_none(), "stash is consumed");
     assert!(core.store.workspace(&ws.id).unwrap().archived_at.is_none());
 
     // Restoring something that isn't archived is an error.
