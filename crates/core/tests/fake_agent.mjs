@@ -2,6 +2,8 @@
 // then finishes. Supports session/resume so reconnects can be tested.
 import readline from "node:readline";
 
+const steering = !process.env.FAKE_NO_STEER;
+let endTurn = null; // resolves the running "slow" prompt
 const send = (msg) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...msg }) + "\n");
 const waiting = new Map();
 let nextId = 1000;
@@ -20,7 +22,13 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   const update = (u) => send({ method: "session/update", params: { sessionId: params.sessionId, update: u } });
   switch (method) {
     case "initialize":
-      return send({ id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { resume: {} } } } });
+      return send({ id, result: { protocolVersion: 1, agentCapabilities: { sessionCapabilities: { resume: {} } }, _meta: steering ? { steering: { supported: true } } : {} } });
+    case "_session/steering":
+      update({ sessionUpdate: "agent_message_chunk", messageId: "s", content: { type: "text", text: `steered:${params.prompt[0].text}` } });
+      return send({ id, result: { outcome: endTurn ? "injected" : "promptRequired" } });
+    case "session/cancel":
+      endTurn?.("cancelled");
+      return;
     case "session/new":
       return send({ id, result: { sessionId: "fake-1", configOptions } });
     case "session/resume":
@@ -29,6 +37,15 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       configOptions[0].currentValue = params.value;
       return send({ id, result: { configOptions } });
     case "session/prompt": {
+      if (params.prompt[0].text.startsWith("slow")) {
+        update({ sessionUpdate: "agent_message_chunk", messageId: `p${id}`, content: { type: "text", text: `working on ${params.prompt[0].text}` } });
+        const reason = await new Promise((r) => {
+          endTurn = r;
+          setTimeout(() => r("end_turn"), 1500);
+        });
+        endTurn = null;
+        return send({ id, result: { stopReason: reason } });
+      }
       if (params.prompt[0].text.startsWith("ask")) {
         const qid = nextId++;
         const reply = new Promise((r) => waiting.set(qid, r));

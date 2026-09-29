@@ -468,6 +468,26 @@ export const actions = {
     if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: v.queued.filter((_, i) => i !== index) } } });
   },
 
+  /** Send a queued message now: injected into the running turn (or, for agents
+   * without steering, the turn is stopped first). Put back on failure. */
+  async steerQueued(sessionId: string, index: number) {
+    const v = get().views[sessionId];
+    const text = v?.queued[index];
+    if (!v || text === undefined) return;
+    actions.unqueue(sessionId, index);
+    try {
+      await api.steer(sessionId, text);
+    } catch (e) {
+      const cur = get().views[sessionId];
+      if (cur) {
+        const queued = cur.queued.slice();
+        queued.splice(Math.min(index, queued.length), 0, text);
+        set({ views: { ...get().views, [sessionId]: { ...cur, queued } } });
+      }
+      toast(String(e));
+    }
+  },
+
   /** Pause/resume the queue while a queued message is edited. */
   holdQueue(sessionId: string, held: boolean) {
     const v = get().views[sessionId];

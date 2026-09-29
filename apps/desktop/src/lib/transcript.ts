@@ -62,10 +62,8 @@ export function applyEvents(t: Transcript, events: CoreEvent[]): Transcript {
           for (let i = items.length - 1; i >= 0; i--) {
             const it = items[i];
             if (it.kind === "turnEnd") break;
-            if (it.kind === "user") {
-              startedAt = it.ts;
-              break;
-            }
+            // Earliest prompt of the turn (steered messages come later).
+            if (it.kind === "user") startedAt = it.ts;
           }
           items.push({ kind: "turnEnd", key: key(), stopReason: e.stopReason, ts: e.ts, startedAt });
         }

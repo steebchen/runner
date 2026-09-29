@@ -141,6 +141,7 @@ export const api = {
   deleteSession: (sessionId: string) => invoke<void>("delete_session", { sessionId }),
   sessionEvents: (sessionId: string) => invoke<CoreEvent[]>("session_events", { sessionId }),
   sendPrompt: (sessionId: string, text: string) => invoke<void>("send_prompt", { sessionId, text }),
+  steer: (sessionId: string, text: string) => invoke<"injected" | "interrupted" | "sent">("steer", { sessionId, text }),
   cancelPrompt: (sessionId: string) => invoke<void>("cancel_prompt", { sessionId }),
   respondPermission: (sessionId: string, requestId: string, optionId: string | null) =>
     invoke<void>("respond_permission", { sessionId, requestId, optionId }),

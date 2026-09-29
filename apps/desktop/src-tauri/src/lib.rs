@@ -164,6 +164,11 @@ async fn send_prompt(app: State<'_, App>, session_id: String, text: String) -> R
 }
 
 #[tauri::command]
+async fn steer(app: State<'_, App>, session_id: String, text: String) -> Res<String> {
+    app.core.agents.steer(&session_id, text).await.map(str::to_string).map_err(err)
+}
+
+#[tauri::command]
 async fn cancel_prompt(app: State<'_, App>, session_id: String) -> Res<()> {
     app.core.agents.cancel(&session_id).await.map_err(err)
 }
@@ -434,6 +439,7 @@ pub fn run() {
             session_events,
             send_prompt,
             cancel_prompt,
+            steer,
             respond_permission,
             set_config,
             answer_question,

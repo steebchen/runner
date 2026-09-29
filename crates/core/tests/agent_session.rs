@@ -1,4 +1,5 @@
 use std::sync::Arc;
+
 use std::time::Duration;
 
 use parking_lot::Mutex;
@@ -158,6 +159,78 @@ async fn questions_are_forwarded_and_answered() {
     wait_for(&log, "agent got answer", |e| {
         matches!(e, Event::SessionUpdate { update, .. }
             if update["content"]["text"].as_str().is_some_and(|t| t.contains("\"question_0\":\"Blue\"")))
+    })
+    .await;
+    core.shutdown();
+}
+
+async fn fake_core(no_steer: bool) -> (Arc<Core>, Arc<Mutex<Vec<Event>>>, String, tempfile::TempDir) {
+    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    let tmp = tempfile::tempdir().unwrap();
+    let (log, sink) = event_log();
+    let core = Core::new(tmp.path(), sink).unwrap();
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.mjs");
+    let (command, args) = if no_steer {
+        ("env".to_string(), vec!["FAKE_NO_STEER=1".to_string(), "node".into(), script.into()])
+    } else {
+        ("node".to_string(), vec![script.into()])
+    };
+    core.agents.register(AgentDef { id: "fake".into(), name: "Fake".into(), command, args });
+    core.store
+        .add_repo(&Repo { id: "r".into(), name: "r".into(), path: tmp.path().display().to_string(), default_branch: "main".into() })
+        .unwrap();
+    core.store
+        .add_workspace(&Workspace {
+            id: "w".into(),
+            repo_id: "r".into(),
+            name: "w".into(),
+            branch: "b".into(),
+            base_branch: "main".into(),
+            path: tmp.path().display().to_string(),
+            status: "ready".into(),
+            created_at: 0,
+            title: String::new(),
+            archived_at: None,
+            unread: false,
+        })
+        .unwrap();
+    let sid = core.create_session("w", "fake", None, None).unwrap().id;
+    wait_for(&log, "connected", |e| matches!(e, Event::SessionConfig { .. })).await;
+    (core, log, sid, tmp)
+}
+
+#[tokio::test]
+async fn steering_injects_into_the_running_turn() {
+    let (core, log, sid, _tmp) = fake_core(false).await;
+    // Idle: steering is just a prompt.
+    core.agents.prompt(&sid, "slow one".into()).unwrap();
+    wait_for(&log, "turn running", |e| {
+        matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"] == "working on slow one")
+    })
+    .await;
+    assert_eq!(core.agents.steer(&sid, "also this".into()).await.unwrap(), "injected");
+    wait_for(&log, "steered", |e| {
+        matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"] == "steered:also this")
+    })
+    .await;
+    assert!(core.agents.is_running(&sid), "steering doesn't stop the turn");
+    wait_for(&log, "turn end", |e| matches!(e, Event::TurnEnd { stop_reason, .. } if stop_reason == "end_turn")).await;
+    assert_eq!(core.agents.steer(&sid, "slow two".into()).await.unwrap(), "sent");
+    core.shutdown();
+}
+
+#[tokio::test]
+async fn without_steering_the_turn_is_interrupted() {
+    let (core, log, sid, _tmp) = fake_core(true).await;
+    core.agents.prompt(&sid, "slow one".into()).unwrap();
+    wait_for(&log, "turn running", |e| {
+        matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"] == "working on slow one")
+    })
+    .await;
+    assert_eq!(core.agents.steer(&sid, "slow now".into()).await.unwrap(), "interrupted");
+    wait_for(&log, "cancelled", |e| matches!(e, Event::TurnEnd { stop_reason, .. } if stop_reason == "cancelled")).await;
+    wait_for(&log, "new prompt", |e| {
+        matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"] == "working on slow now")
     })
     .await;
     core.shutdown();

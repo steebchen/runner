@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, useStore, type PendingQuestion, type Permission } from "../lib/store";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -169,6 +169,11 @@ const Row = memo(function Row({ item }: { item: Item }) {
 
 /** A queued follow-up: dismiss it, or edit it (which holds the queue until saved). */
 function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: number; text: string }) {
+  const running = useStore((s) => s.views[sessionId]?.state === "running");
+  const canSteer = useStore((s) => {
+    const agent = Object.values(s.sessions).flat().find((x) => x.id === sessionId)?.agentId;
+    return agent === "claude" || agent === "codex";
+  });
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(text);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -237,6 +242,19 @@ function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: n
       <span className="line-clamp-2 min-w-0 flex-1 cursor-text whitespace-pre-wrap" onClick={start} title="Click to edit">
         {text}
       </span>
+      {running && (
+        <button
+          onClick={() => actions.steerQueued(sessionId, index)}
+          className="flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] text-faint hover:bg-hover hover:text-fg"
+          title={
+            canSteer
+              ? "Send now: the agent picks it up immediately, without stopping"
+              : "Send now: stops the agent's current turn and sends this"
+          }
+        >
+          <CornerDownLeft size={11} /> Send now
+        </button>
+      )}
       <button onClick={start} className="shrink-0 rounded p-0.5 text-faint hover:bg-hover hover:text-fg" title="Edit">
         <Pencil size={11} />
       </button>

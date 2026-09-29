@@ -65,6 +65,8 @@ struct LiveSession {
     /// updates as the agent leaving plan mode.
     applying_mode: AtomicBool,
     config: Mutex<Value>,
+    /// The agent accepts `_session/steering` (messages injected mid-turn).
+    steering: AtomicBool,
     /// Model and effort to apply once a brand-new ACP session exists.
     initial: Mutex<Option<(Option<String>, Option<String>)>>,
 }
@@ -120,6 +122,7 @@ impl Agents {
             plan: AtomicBool::new(false),
             applying_mode: AtomicBool::new(false),
             config: Mutex::new(json!([])),
+            steering: AtomicBool::new(false),
             initial: Mutex::new(None),
         });
         Ok(self.sessions.lock().entry(session.id.clone()).or_insert(live).clone())
@@ -192,6 +195,10 @@ impl Agents {
             )
             .await?;
         let caps = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
+        s.steering.store(
+            init.pointer("/_meta/steering/supported").and_then(|v| v.as_bool()).unwrap_or(false),
+            Ordering::SeqCst,
+        );
         let cwd = s.cwd.to_string_lossy().to_string();
 
         let existing = s.acp_session_id.lock().clone();
@@ -578,6 +585,55 @@ impl Agents {
             });
         });
         Ok(())
+    }
+
+    /// Deliver a message now. If a turn is running, agents that support
+    /// steering get it injected into that turn; others are stopped and then
+    /// prompted. With no turn running it's an ordinary prompt.
+    /// Returns "injected", "interrupted" or "sent".
+    pub async fn steer(self: &Arc<Self>, session_id: &str, text: String) -> Result<&'static str> {
+        let s = self.get(session_id)?;
+        if !s.running.load(Ordering::SeqCst) {
+            self.prompt(session_id, text)?;
+            return Ok("sent");
+        }
+        let conn = s.conn.lock().await.clone();
+        if let (true, Some(conn)) = (s.steering.load(Ordering::SeqCst), conn) {
+            let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
+            let r = conn
+                .request(
+                    "_session/steering",
+                    json!({
+                        "sessionId": acp_id,
+                        "prompt": prompt_blocks(&text, &s.cwd),
+                        // If the turn just ended, hand the message back so it
+                        // goes through a normal, tracked session/prompt.
+                        "_meta": {"steering": {"idleBehavior": "promptRequired"}}
+                    }),
+                )
+                .await?;
+            return match r["outcome"].as_str().unwrap_or("") {
+                "injected" | "startedNewTurn" => {
+                    self.emitter.emit(Event::UserMessage { session_id: s.id.clone(), text, ts: now() });
+                    Ok("injected")
+                }
+                "promptRequired" => {
+                    self.prompt(session_id, text)?;
+                    Ok("sent")
+                }
+                other => bail!("the agent couldn't take the message right now ({other})"),
+            };
+        }
+        // No steering support: stop the turn, then send.
+        self.cancel(session_id).await?;
+        for _ in 0..300 {
+            if !s.running.load(Ordering::SeqCst) {
+                self.prompt(session_id, text)?;
+                return Ok("interrupted");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        bail!("the agent didn't stop in time; the message is still queued")
     }
 
     pub async fn cancel(&self, session_id: &str) -> Result<()> {

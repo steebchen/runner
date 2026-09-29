@@ -203,6 +203,13 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  steer: (a) => {
+    emit(
+      { type: "userMessage", sessionId: a.sessionId, text: a.text, ts: Date.now() },
+      { type: "sessionUpdate", sessionId: a.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: `st${Date.now()}`, content: { type: "text", text: `On it — also handling: ${a.text}` } } },
+    );
+    return "injected";
+  },
   cached_prs: () => ({
     w1: { number: 42, url: "https://github.com/acme/web/pull/42", state: "OPEN", title: "Add API rate limiting", isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", statusCheckRollup: [{ name: "ci", conclusion: "FAILURE" }, { name: "lint", conclusion: "SUCCESS" }] },
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
