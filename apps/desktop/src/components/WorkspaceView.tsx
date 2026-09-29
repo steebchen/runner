@@ -5,7 +5,7 @@ import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, enabledAgents, toast, useStore } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
-import { effortName, findModel, modelName } from "../lib/models";
+import { AgentIcon, effortName, findModel, modelName } from "../lib/models";
 import { api, type LoadoutEntry, type Session } from "../lib/api";
 import { Chat } from "./Chat";
 import { ChangesPanel } from "./ChangesPanel";
@@ -164,30 +164,36 @@ function SessionTabs({ workspaceId, activeId }: { workspaceId: string; activeId?
 }
 
 function SessionTab({ session, agentName, active }: { session: Session; agentName: string; active: boolean }) {
+  // Only non-idle states get a dot; idle chats stay calm.
   const dot = useStore((s) => {
     const v = s.views[session.id];
     if (v?.permissions.length) return "bg-warn";
     if (v?.state === "running") return "pulse bg-accent";
     if (v?.state === "error") return "bg-del-fg";
-    return v?.unread ? "bg-add-fg" : "bg-faint/60";
+    return v?.unread ? "bg-add-fg" : null;
+  });
+  const model = useStore((s) => {
+    const value = session.model;
+    return value ? modelName(session.agentId, findModel(s.catalogs, session.agentId, value), value) : "";
   });
   return (
     <div
       onClick={() => actions.selectSession(session.workspaceId, session.id)}
+      title={[agentName, model].filter(Boolean).join(" · ")}
       className={clsx(
-        "group flex max-w-52 shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs",
+        "group flex max-w-56 shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs",
         active ? "bg-hover text-fg" : "text-muted hover:text-fg",
       )}
     >
-      <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
-      <span className="shrink-0 font-medium whitespace-nowrap">{agentName}</span>
-      {session.title && <span className="truncate text-muted">· {session.title}</span>}
+      <AgentIcon agent={session.agentId} size={12} />
+      <span className={clsx("truncate", active && "font-medium", !session.title && "text-muted")}>{session.title || "New chat"}</span>
+      {dot && <span className={clsx("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />}
       <button
         onClick={(e) => {
           e.stopPropagation();
           void actions.closeSession(session.workspaceId, session.id);
         }}
-        className="invisible rounded p-0.5 hover:bg-bg group-hover:visible"
+        className="invisible shrink-0 rounded p-0.5 hover:bg-bg group-hover:visible"
       >
         <X size={11} />
       </button>
