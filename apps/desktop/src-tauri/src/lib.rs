@@ -194,6 +194,11 @@ async fn set_config(app: State<'_, App>, session_id: String, config_id: String, 
 }
 
 #[tauri::command]
+async fn restore_checkpoint(app: State<'_, App>, session_id: String, commit: String) -> Res<String> {
+    app.core.restore_checkpoint(&session_id, &commit).await.map_err(err)
+}
+
+#[tauri::command]
 async fn set_plan_mode(app: State<'_, App>, session_id: String, plan: bool) -> Res<()> {
     app.core.agents.set_plan_mode(&session_id, plan).await.map_err(err)
 }
@@ -470,6 +475,7 @@ pub fn run() {
             set_config,
             answer_question,
             set_plan_mode,
+            restore_checkpoint,
             changed_files,
             file_diff,
             list_files,

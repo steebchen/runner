@@ -96,6 +96,8 @@ export type AcpUpdate = { sessionUpdate: string; [key: string]: any };
 export type CoreEvent =
   | { type: "sessionUpdate"; sessionId: string; update: AcpUpdate }
   | { type: "userMessage"; sessionId: string; text: string; ts: number }
+  | { type: "checkpoint"; sessionId: string; commit: string }
+  | { type: "checkpointRestored"; sessionId: string; commit: string; undo: string | null; ts: number }
   | { type: "turnEnd"; sessionId: string; stopReason: string; ts: number }
   | { type: "sessionState"; sessionId: string; state: string; error: string | null }
   | { type: "sessionConfig"; sessionId: string; configOptions: ConfigOption[] }
@@ -170,6 +172,7 @@ export const api = {
     invoke<void>("set_config", { sessionId, configId, value }),
   answerQuestion: (sessionId: string, requestId: string, response: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     invoke<void>("answer_question", { sessionId, requestId, response }),
+  restoreCheckpoint: (sessionId: string, commit: string) => invoke<string>("restore_checkpoint", { sessionId, commit }),
   setPlanMode: (sessionId: string, plan: boolean) => invoke<void>("set_plan_mode", { sessionId, plan }),
   changedFiles: (workspaceId: string) => invoke<ChangedFile[]>("changed_files", { workspaceId }),
   listFiles: (workspaceId: string) => invoke<string[]>("list_files", { workspaceId }),

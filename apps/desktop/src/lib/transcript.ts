@@ -18,7 +18,8 @@ export type ToolCall = {
 export type PlanEntry = { content: string; priority: string; status: "pending" | "in_progress" | "completed" };
 
 export type Item =
-  | { kind: "user"; key: string; text: string; ts: number }
+  | { kind: "user"; key: string; text: string; ts: number; checkpoint?: string }
+  | { kind: "restored"; key: string; commit: string; undo: string | null; ts: number }
   | { kind: "assistant"; key: string; messageId?: string; text: string }
   | { kind: "thought"; key: string; messageId?: string; text: string }
   | { kind: "tool"; key: string; call: ToolCall }
@@ -54,6 +55,19 @@ export function applyEvents(t: Transcript, events: CoreEvent[]): Transcript {
       case "userMessage":
         items.push({ kind: "user", key: key(), text: e.text, ts: e.ts });
         planIndex = null;
+        break;
+      case "checkpoint":
+        // Taken as the turn starts: belongs to the latest prompt.
+        for (let i = items.length - 1; i >= 0; i--) {
+          const it = items[i];
+          if (it.kind === "user") {
+            items[i] = { ...it, checkpoint: e.commit };
+            break;
+          }
+        }
+        break;
+      case "checkpointRestored":
+        items.push({ kind: "restored", key: key(), commit: e.commit, undo: e.undo, ts: e.ts });
         break;
       case "turnEnd":
         {

@@ -235,3 +235,70 @@ async fn without_steering_the_turn_is_interrupted() {
     .await;
     core.shutdown();
 }
+
+#[tokio::test]
+async fn checkpoints_restore_the_worktree_and_tell_the_agent() {
+    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt");
+    std::fs::create_dir(&wt).unwrap();
+    for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@t"], &["config", "user.name", "t"]] {
+        runner_core::git::git(&wt, args).await.unwrap();
+    }
+    std::fs::write(wt.join("a.txt"), "a\n").unwrap();
+    runner_core::git::git(&wt, &["add", "."]).await.unwrap();
+    runner_core::git::git(&wt, &["commit", "-qm", "init"]).await.unwrap();
+
+    let (log, sink) = event_log();
+    let core = Core::new(&tmp.path().join("data"), sink).unwrap();
+    core.agents.register(AgentDef {
+        id: "fake".into(),
+        name: "Fake".into(),
+        command: "node".into(),
+        args: vec![concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.mjs").into()],
+    });
+    let path = wt.display().to_string();
+    core.store.add_repo(&Repo { id: "r".into(), name: "r".into(), path: path.clone(), default_branch: "main".into() }).unwrap();
+    core.store
+        .add_workspace(&Workspace {
+            id: "w".into(),
+            repo_id: "r".into(),
+            name: "w".into(),
+            branch: "main".into(),
+            base_branch: "main".into(),
+            path,
+            status: "ready".into(),
+            created_at: 0,
+            title: String::new(),
+            archived_at: None,
+            unread: false,
+        })
+        .unwrap();
+    let sid = core.create_session("w", "fake", None, None).unwrap().id;
+
+    core.agents.prompt(&sid, "write something".into()).unwrap();
+    let Event::Checkpoint { commit, .. } = wait_for(&log, "checkpoint", |e| matches!(e, Event::Checkpoint { .. })).await else {
+        unreachable!()
+    };
+    wait_for(&log, "turn end", |e| matches!(e, Event::TurnEnd { .. })).await;
+    assert!(wt.join("agent.txt").exists());
+
+    let undo = core.restore_checkpoint(&sid, &commit).await.unwrap();
+    assert!(!wt.join("agent.txt").exists());
+    wait_for(&log, "restored", |e| matches!(e, Event::CheckpointRestored { .. })).await;
+
+    // The agent hears about it with the next prompt.
+    log.lock().clear();
+    core.agents.prompt(&sid, "write again".into()).unwrap();
+    wait_for(&log, "note", |e| {
+        matches!(e, Event::SessionUpdate { update, .. } if update["content"]["text"].as_str().is_some_and(|t| t.contains("restored")))
+    })
+    .await;
+    wait_for(&log, "turn end", |e| matches!(e, Event::TurnEnd { .. })).await;
+
+    // Undoing brings back the state from before the restore.
+    std::fs::remove_file(wt.join("agent.txt")).unwrap();
+    core.restore_checkpoint(&sid, &undo).await.unwrap();
+    assert!(wt.join("agent.txt").exists());
+    core.shutdown();
+}

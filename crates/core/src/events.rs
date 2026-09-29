@@ -10,6 +10,11 @@ use serde_json::Value;
 pub enum Event {
     SessionUpdate { session_id: String, update: Value },
     UserMessage { session_id: String, text: String, ts: i64 },
+    /// Snapshot of the worktree taken right before the last user message was
+    /// sent, so the files can be put back to how they were.
+    Checkpoint { session_id: String, commit: String },
+    /// The files were restored to the checkpoint taken before a message.
+    CheckpointRestored { session_id: String, commit: String, undo: Option<String>, ts: i64 },
     TurnEnd { session_id: String, stop_reason: String, ts: i64 },
     SessionState { session_id: String, state: String, error: Option<String> },
     SessionConfig { session_id: String, config_options: Value },
@@ -51,9 +56,10 @@ impl Event {
                 );
                 (!transient).then_some(session_id)
             }
-            Event::UserMessage { session_id, .. } | Event::TurnEnd { session_id, .. } => {
-                Some(session_id)
-            }
+            Event::UserMessage { session_id, .. }
+            | Event::TurnEnd { session_id, .. }
+            | Event::Checkpoint { session_id, .. }
+            | Event::CheckpointRestored { session_id, .. } => Some(session_id),
             Event::SessionState { session_id, state, .. } if state == "error" => Some(session_id),
             _ => None,
         }

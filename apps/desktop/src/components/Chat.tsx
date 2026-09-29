@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type SlashCommand } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
 import { QuestionCard } from "./QuestionCard";
@@ -72,7 +72,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
               className="absolute top-0 left-0 w-full px-5"
               style={{ transform: `translateY(${row.start}px)` }}
             >
-              <Row item={items[row.index]} />
+              <Row item={items[row.index]} sessionId={sessionId} />
             </div>
           ))}
         </div>
@@ -105,14 +105,28 @@ function EmptyChat({ state }: { state: string }) {
   );
 }
 
-const Row = memo(function Row({ item }: { item: Item }) {
+const Row = memo(function Row({ item, sessionId }: { item: Item; sessionId: string }) {
   switch (item.kind) {
     case "user":
       return (
-        <div className="flex justify-end pt-5 pb-1">
+        <div className="group flex items-start justify-end gap-1.5 pt-5 pb-1">
+          {item.checkpoint && <RestoreButton sessionId={sessionId} commit={item.checkpoint} />}
           <div className="selectable max-w-[85%] rounded-xl bg-hover px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap">
             {item.text}
           </div>
+        </div>
+      );
+    case "restored":
+      return (
+        <div className="flex items-center gap-2 py-2 text-[11px] text-faint">
+          <span className="h-px flex-1 bg-border" />
+          <History size={11} /> Files restored to before this message
+          {item.undo && (
+            <button onClick={() => actions.restoreCheckpoint(sessionId, item.undo!)} className="rounded px-1 text-muted underline-offset-2 hover:text-fg hover:underline">
+              Undo
+            </button>
+          )}
+          <span className="h-px flex-1 bg-border" />
         </div>
       );
     case "assistant":
@@ -167,6 +181,35 @@ const Row = memo(function Row({ item }: { item: Item }) {
       );
   }
 });
+
+/** Put the files back to how they were before a message. Asks for a second
+ * click, since changes made after it (including commits) are discarded. */
+function RestoreButton({ sessionId, commit }: { sessionId: string; commit: string }) {
+  const running = useStore((s) => s.views[sessionId]?.state === "running");
+  const [arming, setArming] = useState(false);
+  useEffect(() => {
+    if (!arming) return;
+    const t = setTimeout(() => setArming(false), 3000);
+    return () => clearTimeout(t);
+  }, [arming]);
+  if (running) return null;
+  return (
+    <button
+      onClick={() => {
+        if (!arming) return setArming(true);
+        setArming(false);
+        void actions.restoreCheckpoint(sessionId, commit);
+      }}
+      title="Restore the workspace's files to how they were before this message. Later changes and commits are discarded (you can undo)."
+      className={clsx(
+        "mt-1.5 flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-opacity",
+        arming ? "bg-del-bg text-del-fg opacity-100" : "text-faint opacity-0 group-hover:opacity-100 hover:bg-hover hover:text-fg",
+      )}
+    >
+      <History size={11} /> {arming ? "Click to restore" : "Restore"}
+    </button>
+  );
+}
 
 /** A queued follow-up: dismiss it, or edit it (which holds the queue until saved). */
 function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: number; text: string }) {

@@ -37,6 +37,12 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       configOptions[0].currentValue = params.value;
       return send({ id, result: { configOptions } });
     case "session/prompt": {
+      if (params.prompt[0].text.startsWith("write")) {
+        (await import("node:fs")).writeFileSync("agent.txt", "made by the agent\n");
+        const last = params.prompt[params.prompt.length - 1].text;
+        update({ sessionUpdate: "agent_message_chunk", messageId: `w${id}`, content: { type: "text", text: `last:${last}` } });
+        return send({ id, result: { stopReason: "end_turn" } });
+      }
       if (params.prompt[0].text.startsWith("slow")) {
         update({ sessionUpdate: "agent_message_chunk", messageId: `p${id}`, content: { type: "text", text: `working on ${params.prompt[0].text}` } });
         const reason = await new Promise((r) => {

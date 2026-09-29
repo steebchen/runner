@@ -73,6 +73,9 @@ struct LiveSession {
     turn_cost: Mutex<Option<f64>>,
     /// Model and effort to apply once a brand-new ACP session exists.
     initial: Mutex<Option<(Option<String>, Option<String>)>>,
+    /// Context for the agent that goes along with the next prompt (e.g. that
+    /// the user restored the files to an earlier checkpoint).
+    notes: Mutex<Vec<String>>,
 }
 
 pub struct Agents {
@@ -130,6 +133,7 @@ impl Agents {
             cost_reported: Mutex::new(None),
             turn_cost: Mutex::new(None),
             initial: Mutex::new(None),
+            notes: Mutex::default(),
         });
         Ok(self.sessions.lock().entry(session.id.clone()).or_insert(live).clone())
     }
@@ -638,9 +642,15 @@ impl Agents {
         tokio::spawn(async move {
             let result = async {
                 let conn = this.connect(&s).await?;
+                // After connecting: the worktree is ready by then.
+                this.checkpoint(&s).await;
                 let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
-                conn.request("session/prompt", json!({"sessionId": acp_id, "prompt": prompt_blocks(&text, &s.cwd)}))
-                    .await
+                let mut blocks = prompt_blocks(&text, &s.cwd);
+                let notes: Vec<String> = s.notes.lock().drain(..).collect();
+                if let (false, Some(list)) = (notes.is_empty(), blocks.as_array_mut()) {
+                    list.push(json!({"type": "text", "text": format!("<system-reminder>\n{}\n</system-reminder>", notes.join("\n"))}));
+                }
+                conn.request("session/prompt", json!({"sessionId": acp_id, "prompt": blocks})).await
             }
             .await;
             s.running.store(false, Ordering::SeqCst);
@@ -666,6 +676,31 @@ impl Agents {
             });
         });
         Ok(())
+    }
+
+    /// Snapshot the worktree before a turn so the user can go back to it.
+    /// Best-effort: a failure only means there's no restore point.
+    async fn checkpoint(&self, s: &LiveSession) {
+        let refname = format!("refs/runner/checkpoints/{}/{}", s.id, now());
+        match crate::git::checkpoint(&s.cwd, &refname).await {
+            Ok(commit) => self.emitter.emit(Event::Checkpoint { session_id: s.id.clone(), commit }),
+            Err(e) => log::warn!("checkpoint failed: {e:#}"),
+        }
+    }
+
+    /// Tell every open chat of a workspace something along with its next prompt.
+    pub fn add_note(&self, workspace_id: &str, note: &str) {
+        for s in self.sessions.lock().values().filter(|s| s.workspace_id == workspace_id) {
+            s.notes.lock().push(note.to_string());
+        }
+    }
+
+    /// Whether any chat of the workspace is in the middle of a turn.
+    pub fn workspace_busy(&self, workspace_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .values()
+            .any(|s| s.workspace_id == workspace_id && s.running.load(Ordering::SeqCst))
     }
 
     /// Deliver a message now. If a turn is running, agents that support

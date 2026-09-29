@@ -491,6 +491,11 @@ export const actions = {
     set({ views: { ...get().views, [sessionId]: { ...v, transcript, loaded: true } } });
   },
 
+  /** Put the workspace's files back to a checkpoint (or undo a restore). */
+  async restoreCheckpoint(sessionId: string, commit: string) {
+    await guard(api.restoreCheckpoint(sessionId, commit));
+  },
+
   /** Queue a follow-up while the agent works; it's sent when the turn ends. */
   queue(sessionId: string, text: string) {
     const v = get().views[sessionId];

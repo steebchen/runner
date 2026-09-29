@@ -380,7 +380,48 @@ impl Core {
 
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         self.agents.close(session_id);
+        // The chat's checkpoints go with it (in the background; it's only cleanup).
+        if let Ok(ws) = self.store.session(session_id).and_then(|s| self.store.workspace(&s.workspace_id)) {
+            let prefix = format!("refs/runner/checkpoints/{session_id}/");
+            std::thread::spawn(move || {
+                let git = |args: &[&str]| env::std_command("git").args(args).current_dir(&ws.path).output();
+                if let Ok(out) = git(&["for-each-ref", "--format=%(refname)", &prefix]) {
+                    for r in String::from_utf8_lossy(&out.stdout).lines().filter(|r| !r.is_empty()) {
+                        let _ = git(&["update-ref", "-d", r]);
+                    }
+                }
+            });
+        }
         self.store.delete_session(session_id)
+    }
+
+    /// Put the workspace's files back to a checkpoint taken before one of
+    /// the chat's messages. Returns a checkpoint of the current state, so
+    /// the restore can be undone.
+    pub async fn restore_checkpoint(&self, session_id: &str, commit: &str) -> Result<String> {
+        let session = self.store.session(session_id)?;
+        let (_, path) = self.ws_path(&session.workspace_id)?;
+        if self.agents.workspace_busy(&session.workspace_id) {
+            bail!("an agent is working in this workspace; stop it first");
+        }
+        git::git(&path, &["cat-file", "-e", &format!("{commit}^{{commit}}")])
+            .await
+            .map_err(|_| anyhow!("this checkpoint no longer exists"))?;
+        let undo = git::checkpoint(&path, &format!("refs/runner/checkpoints/{session_id}/{}", now())).await?;
+        git::restore_checkpoint(&path, commit).await?;
+        self.agents.add_note(
+            &session.workspace_id,
+            "The user restored this workspace's files (and git HEAD) to how they were before one of their earlier \
+             messages. Changes made after that point are gone; re-read files instead of relying on what you saw before.",
+        );
+        self.emitter.emit(Event::CheckpointRestored {
+            session_id: session_id.into(),
+            commit: commit.into(),
+            undo: Some(undo.clone()),
+            ts: now(),
+        });
+        self.emitter.emit(Event::WorkspaceStatus { workspace_id: session.workspace_id, status: "dirty".into() });
+        Ok(undo)
     }
 
     // ---- usage & cost ----

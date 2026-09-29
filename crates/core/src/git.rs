@@ -247,6 +247,61 @@ pub async fn push(wt: &Path, branch: &str) -> Result<()> {
     Ok(())
 }
 
+/// Snapshot the worktree (committed, staged, unstaged and untracked files,
+/// not ignored ones) without touching HEAD, the index or any file. The
+/// snapshot is a commit whose parent is HEAD, kept alive by `refname`.
+pub async fn checkpoint(wt: &Path, refname: &str) -> Result<String> {
+    let head = git(wt, &["rev-parse", "HEAD"]).await?.trim().to_string();
+    // Stage everything into a copy of the real index, so unchanged files
+    // keep their cached stat info and big repos stay fast.
+    let index = git(wt, &["rev-parse", "--path-format=absolute", "--git-path", "index"]).await?;
+    let tmp = std::env::temp_dir().join(format!("runner-index-{}", uuid::Uuid::new_v4()));
+    let _ = tokio::fs::copy(index.trim(), &tmp).await;
+    let with_index = |args: &'static [&'static str]| {
+        let mut cmd = tokio_command("git");
+        cmd.args(args).current_dir(wt).env("GIT_INDEX_FILE", &tmp);
+        cmd
+    };
+    let result = async {
+        let out = with_index(&["add", "-A"]).output().await?;
+        if !out.status.success() {
+            bail!("git add failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+        let out = with_index(&["write-tree"]).output().await?;
+        if !out.status.success() {
+            bail!("git write-tree failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&tmp).await;
+    let tree = result?;
+    let commit = git(wt, &["commit-tree", &tree, "-p", &head, "-m", "runner checkpoint"]).await?.trim().to_string();
+    git(wt, &["update-ref", refname, &commit]).await?;
+    Ok(commit)
+}
+
+/// Put the worktree back to a checkpoint: HEAD returns to where it was
+/// (dropping commits made since), files match the snapshot exactly, and
+/// files that were untracked then are untracked again. Ignored files stay.
+pub async fn restore_checkpoint(wt: &Path, commit: &str) -> Result<()> {
+    let head = git(wt, &["rev-parse", &format!("{commit}^")]).await?.trim().to_string();
+    git(wt, &["reset", "-q", "--hard", &head]).await?;
+    git(wt, &["clean", "-fdq"]).await?;
+    git(wt, &["read-tree", "-u", "--reset", &format!("{commit}^{{tree}}")]).await?;
+    git(wt, &["reset", "-q"]).await?;
+    Ok(())
+}
+
+/// Delete refs under a prefix (e.g. a chat's checkpoints).
+pub async fn delete_refs(repo: &Path, prefix: &str) -> Result<()> {
+    let refs = git(repo, &["for-each-ref", "--format=%(refname)", prefix]).await?;
+    for r in refs.lines().filter(|r| !r.is_empty()) {
+        let _ = git(repo, &["update-ref", "-d", r]).await;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +343,46 @@ mod tests {
 
         remove_worktree(&repo, &wt).await.unwrap();
         assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn checkpoints_restore_files_and_head() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        init_repo(&repo).await;
+        std::fs::write(repo.join(".gitignore"), "ignored.txt\n").unwrap();
+        git(&repo, &["add", "."]).await.unwrap();
+        git(&repo, &["commit", "-qm", "ignore"]).await.unwrap();
+
+        // State at the checkpoint: a modified, a staged and an untracked file.
+        std::fs::write(repo.join("a.txt"), "one\nedited\n").unwrap();
+        std::fs::write(repo.join("staged.txt"), "s\n").unwrap();
+        git(&repo, &["add", "staged.txt"]).await.unwrap();
+        std::fs::write(repo.join("new.txt"), "n\n").unwrap();
+        let cp = checkpoint(&repo, "refs/runner/checkpoints/s/1").await.unwrap();
+        assert!(has_uncommitted(&repo).await.unwrap(), "checkpoint must not touch the worktree");
+
+        // The agent then commits, edits, deletes and creates files.
+        let head_before = git(&repo, &["rev-parse", "HEAD"]).await.unwrap();
+        git(&repo, &["add", "-A"]).await.unwrap();
+        git(&repo, &["commit", "-qm", "agent"]).await.unwrap();
+        std::fs::write(repo.join("a.txt"), "rewritten\n").unwrap();
+        std::fs::remove_file(repo.join("new.txt")).unwrap();
+        std::fs::write(repo.join("later.txt"), "x\n").unwrap();
+        std::fs::write(repo.join("ignored.txt"), "keep\n").unwrap();
+
+        restore_checkpoint(&repo, &cp).await.unwrap();
+        assert_eq!(git(&repo, &["rev-parse", "HEAD"]).await.unwrap(), head_before);
+        assert_eq!(std::fs::read_to_string(repo.join("a.txt")).unwrap(), "one\nedited\n");
+        assert_eq!(std::fs::read_to_string(repo.join("new.txt")).unwrap(), "n\n");
+        assert!(repo.join("staged.txt").exists());
+        assert!(!repo.join("later.txt").exists());
+        assert!(repo.join("ignored.txt").exists(), "ignored files are left alone");
+        let status = git(&repo, &["status", "--porcelain"]).await.unwrap();
+        assert!(status.contains("?? new.txt") && status.contains(" M a.txt"), "{status}");
+
+        delete_refs(&repo, "refs/runner/checkpoints/s/").await.unwrap();
+        assert!(git(&repo, &["for-each-ref", "refs/runner/"]).await.unwrap().trim().is_empty());
     }
 }

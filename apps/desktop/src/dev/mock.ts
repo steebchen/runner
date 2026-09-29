@@ -71,6 +71,7 @@ const commands = {
 
 const sessionHistory = (sid: string) => [
   { type: "userMessage", sessionId: sid, text: "Add rate limiting to the public API endpoints", ts: Date.now() - 134_000 },
+  { type: "checkpoint", sessionId: sid, commit: "c0ffee1" },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "I'll look at how the API routes are set up first." } } },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read src/server/routes.ts", kind: "read", status: "completed" } },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "plan", entries: [{ content: "Add a token bucket limiter", priority: "high", status: "completed" }, { content: "Wire it into public routes", priority: "high", status: "completed" }, { content: "Add tests", priority: "medium", status: "in_progress" }] } },
@@ -101,7 +102,7 @@ const patch = `diff --git a/src/server/limiter.ts b/src/server/limiter.ts
  export default limits;`;
 
 async function streamReply(sessionId: string, text: string) {
-  emit({ type: "userMessage", sessionId, text, ts: Date.now() }, { type: "sessionState", sessionId, state: "running", error: null });
+  emit({ type: "userMessage", sessionId, text, ts: Date.now() }, { type: "sessionState", sessionId, state: "running", error: null }, { type: "checkpoint", sessionId, commit: `c${Date.now()}` });
   await sleep(300);
   emit({ type: "sessionUpdate", sessionId, update: { sessionUpdate: "tool_call", toolCallId: `x${Date.now()}`, title: "Run pnpm test", kind: "execute", status: "in_progress" } });
   const words = "Sure — I'll handle that. First I'll check the existing tests, then make the change and run the suite again to confirm everything passes.".split(" ");
@@ -236,6 +237,11 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  restore_checkpoint: (a) => {
+    const undo = `u${Date.now()}`;
+    emit({ type: "checkpointRestored", sessionId: a.sessionId, commit: a.commit, undo, ts: Date.now() });
+    return undo;
+  },
   steer: (a) => {
     emit(
       { type: "userMessage", sessionId: a.sessionId, text: a.text, ts: Date.now() },
