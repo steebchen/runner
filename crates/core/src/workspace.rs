@@ -171,7 +171,7 @@ mod tests {
     fn ports_are_stable_blocks() {
         let p = port_base("abc");
         assert_eq!(p, port_base("abc"));
-        assert!((50_000..60_000).contains(&p) && p % 10 == 0);
+        assert!((50_000..60_000).contains(&p) && p.is_multiple_of(10));
     }
 
     #[test]
