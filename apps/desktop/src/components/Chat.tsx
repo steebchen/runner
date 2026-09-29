@@ -1,7 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, Search, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type Queued, type SlashCommand, toast } from "../lib/store";
 import { ImageThumb } from "./ImageThumb";
 import { useShallow } from "zustand/react/shallow";
@@ -44,6 +44,40 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
     if (stick.current !== atBottom) setAtBottom(stick.current);
   };
+  // ⌘F: find in this chat.
+  const [search, setSearch] = useState<string | null>(null);
+  const [matchIndex, setMatchIndex] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.shiftKey && e.key === "f") {
+        e.preventDefault();
+        setSearch((q) => q ?? "");
+        requestAnimationFrame(() => searchRef.current?.select());
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const matches = useMemo(() => {
+    const q = search?.trim().toLowerCase();
+    if (!q) return [];
+    return items.flatMap((it, i) => (itemText(it).toLowerCase().includes(q) ? [i] : []));
+  }, [items, search]);
+  const current = matches.length ? matches[Math.min(matchIndex, matches.length - 1)] : null;
+  useEffect(() => setMatchIndex(Math.max(0, matches.length - 1)), [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (current === null) return;
+    virtualizer.scrollToIndex(current, { align: "center" });
+  }, [current, virtualizer]);
+  const highlight = useCallback(() => highlightMatches(scrollRef.current, search?.trim() ?? ""), [search]);
+  useEffect(() => {
+    const raf = requestAnimationFrame(highlight);
+    return () => cancelAnimationFrame(raf);
+  });
+  useEffect(() => () => highlightMatches(null, ""), []);
+  const step = (dir: number) => matches.length && setMatchIndex((i) => (Math.min(i, matches.length - 1) + dir + matches.length) % matches.length);
+
   const jumpToLatest = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -54,6 +88,37 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {search !== null && (
+        <div className="absolute top-2 right-4 z-30 flex items-center gap-1 rounded-lg border border-border bg-elevated px-2 py-1 shadow-md">
+          <Search size={12} className="text-muted" />
+          <input
+            ref={searchRef}
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") step(e.shiftKey ? -1 : 1);
+              else if (e.key === "Escape") setSearch(null);
+              else return;
+              e.preventDefault();
+            }}
+            placeholder="Find in chat"
+            className="selectable w-44 bg-transparent py-0.5 text-xs outline-none placeholder:text-faint"
+          />
+          <span className="w-12 text-right text-[11px] text-muted tabular-nums">
+            {search.trim() ? `${matches.length ? Math.min(matchIndex, matches.length - 1) + 1 : 0}/${matches.length}` : ""}
+          </span>
+          <button onClick={() => step(-1)} title="Previous (⇧↩)" className="rounded p-0.5 text-muted hover:bg-hover hover:text-fg">
+            <ChevronUp size={13} />
+          </button>
+          <button onClick={() => step(1)} title="Next (↩)" className="rounded p-0.5 text-muted hover:bg-hover hover:text-fg">
+            <ChevronDown size={13} />
+          </button>
+          <button onClick={() => setSearch(null)} title="Close (Esc)" className="rounded p-0.5 text-muted hover:bg-hover hover:text-fg">
+            <X size={12} />
+          </button>
+        </div>
+      )}
       {!atBottom && items.length > 0 && (
         <button
           onClick={jumpToLatest}
@@ -62,7 +127,13 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
           <ArrowDown size={12} /> Jump to latest
         </button>
       )}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={() => {
+          onScroll();
+          if (search) requestAnimationFrame(highlight);
+        }}
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {loaded && items.length === 0 && <EmptyChat state={state} />}
         <div className="relative mx-auto w-full max-w-3xl" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((row) => (
@@ -70,7 +141,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
               key={row.key}
               data-index={row.index}
               ref={virtualizer.measureElement}
-              className="absolute top-0 left-0 w-full px-5"
+              className={clsx("absolute top-0 left-0 w-full px-5", row.index === current && "search-current")}
               style={{ transform: `translateY(${row.start}px)` }}
             >
               <Row item={items[row.index]} sessionId={sessionId} />
@@ -95,6 +166,44 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
 }
 
 const EMPTY: Item[] = [];
+
+/** Searchable text of a transcript item. */
+function itemText(it: Item): string {
+  switch (it.kind) {
+    case "user":
+    case "assistant":
+    case "thought":
+    case "error":
+      return it.text;
+    case "tool":
+      return it.call.title ?? "";
+    case "plan":
+      return it.entries.map((e) => e.content).join("\n");
+    default:
+      return "";
+  }
+}
+
+/** Mark every occurrence of `query` in the rendered rows (CSS Custom Highlight API). */
+function highlightMatches(root: HTMLElement | null, query: string) {
+  const registry = (CSS as any).highlights as Map<string, unknown> | undefined;
+  const Highlight = (window as any).Highlight;
+  if (!registry || !Highlight) return;
+  if (!root || !query) return void registry.delete("chat-search");
+  const q = query.toLowerCase();
+  const ranges: Range[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node.textContent?.toLowerCase() ?? "";
+    for (let i = text.indexOf(q); i >= 0; i = text.indexOf(q, i + q.length)) {
+      const r = new Range();
+      r.setStart(node, i);
+      r.setEnd(node, i + q.length);
+      ranges.push(r);
+    }
+  }
+  registry.set("chat-search", new Highlight(...ranges));
+}
 const EMPTY_PERMS: Permission[] = [];
 const EMPTY_QUESTIONS: PendingQuestion[] = [];
 
