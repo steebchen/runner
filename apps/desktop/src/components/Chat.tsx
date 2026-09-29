@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, RotateCw, Search, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type Queued, type SlashCommand, toast } from "../lib/store";
 import { ImageThumb } from "./ImageThumb";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useShallow } from "zustand/react/shallow";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -584,8 +585,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
   };
 
   const pickImages = async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const picked = await open({ multiple: true, title: "Attach images", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }] });
+    const picked = await openDialog({ multiple: true, title: "Attach images", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }] });
     const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
     if (paths.length) await actions.attachFiles(sessionId, paths);
     ref.current?.focus();

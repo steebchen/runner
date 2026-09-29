@@ -2,8 +2,17 @@ import { memo, useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { highlightBlock } from "../lib/highlight";
 
 marked.setOptions({ gfm: true, breaks: false });
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const html = highlightBlock(text, lang);
+      return html === null ? false : `<pre><code class="hljs">${html}</code></pre>\n`;
+    },
+  },
+});
 
 // Agent output is untrusted: always sanitize before it touches the DOM, since
 // this webview can call into the app's IPC.

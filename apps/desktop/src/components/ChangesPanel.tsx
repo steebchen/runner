@@ -5,6 +5,7 @@ import { Check, ExternalLink, MessageSquarePlus, RefreshCw, Undo2, X } from "luc
 import { api, type ChangedFile } from "../lib/api";
 import { actions, toast, useStore } from "../lib/store";
 import { parseUnifiedDiff, type DiffLine } from "../lib/diff";
+import { highlightLine, languageFor } from "../lib/highlight";
 
 type Comment = { path: string; line: number; text: string };
 
@@ -240,6 +241,7 @@ function FileDiff({
     };
   }, [workspaceId, path, tick]);
 
+  const language = useMemo(() => languageFor(path), [path]);
   const rows = useMemo(() => {
     if (patch === null) return [];
     const { binary, hunks } = parseUnifiedDiff(patch);
@@ -297,10 +299,10 @@ function FileDiff({
                       </button>
                     )}
                   </span>
-                  <span className={clsx("pl-3", l.type === "add" && "text-add-fg", l.type === "del" && "text-del-fg")}>
+                  <span className={clsx("w-4 shrink-0 pl-1.5 select-none", l.type === "add" && "text-add-fg", l.type === "del" && "text-del-fg")}>
                     {l.type === "add" ? "+" : l.type === "del" ? "-" : " "}
-                    {l.text}
                   </span>
+                  <CodeText text={l.text} language={l.type === "gap" ? null : language} />
                 </div>
                 {commentAt !== null && l.newNo === commentAt && (
                   <CommentBox
@@ -318,6 +320,11 @@ function FileDiff({
       </div>
     </div>
   );
+}
+
+function CodeText({ text, language }: { text: string; language: string | null }) {
+  const html = highlightLine(text, language);
+  return html === null ? <span>{text}</span> : <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function CommentBox({ onSubmit, onCancel }: { onSubmit: (text: string) => void; onCancel: () => void }) {
