@@ -1,5 +1,6 @@
 //! cargo run -p runner-core --example image -- <repo> <agent>
 //! Attaches a generated image (a solid red square) and asks what color it is.
+//! With a third argument `--image-only`, sends the image without any text.
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -70,7 +71,12 @@ async fn main() -> anyhow::Result<()> {
     let ws = core.create_workspace(&repo.id).await?;
     let sid = core.create_session(&ws.id, &a[1], None, None)?.id;
     let image = core.save_attachment("image/png", &base64::engine::general_purpose::STANDARD.encode(red_png()))?;
-    core.agents.prompt_with(&sid, "What color is the attached image? Reply with one word, without using any tools.".into(), vec![image])?;
+    let text = if a.get(2).map(String::as_str) == Some("--image-only") {
+        String::new()
+    } else {
+        "What color is the attached image? Reply with one word, without using any tools.".into()
+    };
+    core.agents.prompt_with(&sid, text, vec![image])?;
     let mut text = String::new();
     for _ in 0..1200 {
         tokio::time::sleep(Duration::from_millis(100)).await;

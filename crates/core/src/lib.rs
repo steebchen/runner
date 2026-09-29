@@ -188,8 +188,10 @@ impl Core {
                 if head["isCrossRepository"].as_bool() == Some(true) {
                     // A fork's branch: fetch the PR head into a local branch.
                     let local = format!("pr-{n}");
+                    // Fast-forwards an existing pr-<n> to the PR's latest head.
+                    let fetched = git::git(&repo_path, &["fetch", "-q", "origin", &format!("pull/{n}/head:{local}")]).await;
                     if !git::branch_exists(&repo_path, &local).await {
-                        git::git(&repo_path, &["fetch", "-q", "origin", &format!("pull/{n}/head:{local}")]).await?;
+                        fetched?;
                     }
                     (local, base, title)
                 } else {
@@ -466,10 +468,13 @@ impl Core {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         self.agents.close(session_id);
         // The chat's checkpoints go with it (in the background; it's only cleanup).
-        if let Ok(ws) = self.store.session(session_id).and_then(|s| self.store.workspace(&s.workspace_id)) {
+        // Refs are shared by the repo, so this works even when the workspace
+        // is archived (no worktree).
+        let repo = self.store.session(session_id).and_then(|s| self.store.workspace(&s.workspace_id)).and_then(|w| self.store.repo(&w.repo_id));
+        if let Ok(repo) = repo {
             let prefix = format!("refs/runner/checkpoints/{session_id}/");
             std::thread::spawn(move || {
-                let git = |args: &[&str]| env::std_command("git").args(args).current_dir(&ws.path).output();
+                let git = |args: &[&str]| env::std_command("git").args(args).current_dir(&repo.path).output();
                 if let Ok(out) = git(&["for-each-ref", "--format=%(refname)", &prefix]) {
                     for r in String::from_utf8_lossy(&out.stdout).lines().filter(|r| !r.is_empty()) {
                         let _ = git(&["update-ref", "-d", r]);
@@ -486,6 +491,8 @@ impl Core {
     pub async fn restore_checkpoint(&self, session_id: &str, commit: &str) -> Result<String> {
         let session = self.store.session(session_id)?;
         let (_, path) = self.ws_path(&session.workspace_id)?;
+        let lock = self.agents.workspace_lock(&session.workspace_id);
+        let _guard = lock.lock().await;
         if self.agents.workspace_busy(&session.workspace_id) {
             bail!("an agent is working in this workspace; stop it first");
         }

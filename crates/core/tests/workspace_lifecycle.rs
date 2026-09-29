@@ -101,4 +101,12 @@ async fn workspace_from_an_existing_branch() {
     assert!(git::has_upstream(path).await, "tracks origin's branch");
     // Opening the same branch again is refused.
     assert!(core.create_workspace_from(&r.id, Some("feature/login"), None).await.is_err());
+
+    // A fresh workspace branch starts from origin/main but doesn't track it,
+    // so it counts as unpushed (and can be renamed after its task).
+    let fresh = core.create_workspace(&r.id).await.unwrap();
+    wait_status(&core, &fresh.id, "ready").await;
+    let fresh_path = Path::new(&fresh.path);
+    assert!(!git::has_upstream(fresh_path).await);
+    assert!(!git::remote_branch_exists(fresh_path, &fresh.branch).await);
 }

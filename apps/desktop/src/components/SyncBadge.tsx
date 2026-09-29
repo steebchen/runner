@@ -25,12 +25,14 @@ export function SyncBadge({ workspace, sessionId }: { workspace: Workspace; sess
     return () => clearInterval(id);
   }, [refresh, tick]);
 
-  const askAgent = (files: string[]) => {
+  const askAgent = (files: string[], merging: boolean) => {
     if (!sessionId) return toast("Open a chat to hand the conflicts to an agent");
     const list = files.length ? `:\n${files.map((f) => `- ${f}`).join("\n")}` : ".";
     actions.appendDraft(
       sessionId,
-      `Merging \`${workspace.baseBranch}\` into this branch stopped on conflicts${list}\n\nResolve them, keeping the intent of both sides, check that it still builds and the tests pass, then commit the merge.`,
+      merging
+        ? `Merging \`${workspace.baseBranch}\` into this branch stopped on conflicts${list}\n\nResolve them, keeping the intent of both sides, check that it still builds and the tests pass, then commit the merge.`
+        : `\`${workspace.baseBranch}\` was merged into this branch, but re-applying the uncommitted changes on top of it conflicted${list}\n\nResolve the conflict markers, keeping the intent of both sides, and check that it still builds. (git also kept a copy of those changes in \`git stash\`.)`,
     );
     actions.selectSession(workspace.id, sessionId);
   };
@@ -39,7 +41,7 @@ export function SyncBadge({ workspace, sessionId }: { workspace: Workspace; sess
     setBusy(true);
     try {
       const conflicts = await api.mergeBaseBranch(workspace.id);
-      if (conflicts.length) toast(`Merge stopped on conflicts in ${conflicts.length} file${conflicts.length === 1 ? "" : "s"}`, "info");
+      if (conflicts.length) toast(`Conflicts in ${conflicts.length} file${conflicts.length === 1 ? "" : "s"} after merging ${workspace.baseBranch}`, "info");
       else toast(`Merged ${workspace.baseBranch} into ${workspace.branch}`, "info");
     } catch (e) {
       toast(String(e));
@@ -56,7 +58,7 @@ export function SyncBadge({ workspace, sessionId }: { workspace: Workspace; sess
 
   if (!status) return null;
 
-  if (status.merging) {
+  if (status.merging || status.conflicts.length) {
     const n = status.conflicts.length;
     return (
       <Menu
@@ -68,8 +70,8 @@ export function SyncBadge({ workspace, sessionId }: { workspace: Workspace; sess
           </span>
         }
         items={[
-          { label: n ? "Resolve with agent" : "Ask agent to finish the merge", onSelect: () => askAgent(status.conflicts) },
-          { label: "Abort merge", onSelect: () => void abort() },
+          { label: n ? "Resolve with agent" : "Ask agent to finish the merge", onSelect: () => askAgent(status.conflicts, status.merging) },
+          ...(status.merging ? [{ label: "Abort merge", onSelect: () => void abort() }] : []),
         ]}
       />
     );

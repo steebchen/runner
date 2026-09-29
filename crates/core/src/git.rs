@@ -66,8 +66,14 @@ pub async fn create_worktree(repo: &Path, path: &Path, branch: &str, base_branch
     let _ = git(repo, &["fetch", "origin", base_branch]).await;
     let base = base_ref(repo, base_branch).await;
     let path = path.to_string_lossy();
-    git(repo, &["worktree", "add", "-b", branch, &path, &base]).await?;
+    // --no-track: the new branch has no upstream until it's pushed.
+    git(repo, &["worktree", "add", "--no-track", "-b", branch, &path, &base]).await?;
     Ok(())
+}
+
+/// Whether origin has a branch of this name (as of the last fetch).
+pub async fn remote_branch_exists(repo: &Path, branch: &str) -> bool {
+    git_ok(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{branch}")]).await
 }
 
 pub async fn branch_exists(repo: &Path, branch: &str) -> bool {
@@ -145,13 +151,19 @@ pub async fn checked_out_at(repo: &Path, branch: &str) -> Option<String> {
 }
 
 /// Make sure a local branch exists for `branch`, creating one that tracks
-/// origin's if needed (fetching it first).
+/// origin's if needed. An existing local branch that's strictly behind
+/// origin's is fast-forwarded, so a PR opens at its latest commit.
 pub async fn ensure_local_branch(repo: &Path, branch: &str) -> Result<()> {
-    if branch_exists(repo, branch).await {
-        return Ok(());
-    }
     let _ = git(repo, &["fetch", "-q", "origin", branch]).await;
-    git(repo, &["branch", "--track", branch, &format!("origin/{branch}")]).await?;
+    let remote = format!("origin/{branch}");
+    if !branch_exists(repo, branch).await {
+        git(repo, &["branch", "--track", branch, &remote]).await?;
+    } else if remote_branch_exists(repo, branch).await
+        && git_ok(repo, &["merge-base", "--is-ancestor", &format!("refs/heads/{branch}"), &remote]).await
+    {
+        // Not checked out anywhere (callers make sure), so moving it is safe.
+        git(repo, &["branch", "-f", branch, &remote]).await?;
+    }
     Ok(())
 }
 
@@ -383,8 +395,9 @@ pub async fn sync_status(wt: &Path, base_branch: &str) -> Result<SyncStatus> {
 
 /// Merge the latest base branch into the workspace branch. Uncommitted
 /// changes are stashed around the merge. Returns the conflicted files (the
-/// merge is left in progress so they can be resolved), or none if it went
-/// through cleanly.
+/// merge is left in progress so they can be resolved; if only re-applying
+/// the uncommitted changes conflicted, git also keeps them in a stash), or
+/// none if it went through cleanly.
 pub async fn merge_base_branch(wt: &Path, base_branch: &str) -> Result<Vec<String>> {
     let base = base_ref(wt, base_branch).await;
     let out = tokio_command("git")
@@ -393,10 +406,12 @@ pub async fn merge_base_branch(wt: &Path, base_branch: &str) -> Result<Vec<Strin
         .output()
         .await
         .context("failed to run git")?;
-    if out.status.success() {
-        return Ok(Vec::new());
-    }
     let conflicts = sync_status(wt, base_branch).await?.conflicts;
+    if out.status.success() {
+        // The merge went through, but putting uncommitted changes back on
+        // top (--autostash) can itself conflict; git still exits 0 then.
+        return Ok(conflicts);
+    }
     if conflicts.is_empty() {
         let msg = String::from_utf8_lossy(&out.stderr);
         let msg = if msg.trim().is_empty() { String::from_utf8_lossy(&out.stdout) } else { msg };
@@ -547,6 +562,7 @@ mod tests {
         commit_all(&wt, "branch work").await.unwrap();
         std::fs::write(wt.join("a.txt"), "one\nlocal\n").unwrap();
 
+        assert!(!has_upstream(&wt).await, "new branches aren't tracking the base");
         let st = sync_status(&wt, "main").await.unwrap();
         assert_eq!((st.ahead, st.behind, st.merging), (1, 1, false));
         assert!(merge_base_branch(&wt, "main").await.unwrap().is_empty());
@@ -562,6 +578,13 @@ mod tests {
         let st = sync_status(&wt, "main").await.unwrap();
         assert!(st.merging && st.conflicts == vec!["a.txt".to_string()]);
         abort_merge(&wt).await.unwrap();
+        assert!(!sync_status(&wt, "main").await.unwrap().merging);
+
+        // Uncommitted edits that clash with the merged change are reported too.
+        git(&wt, &["reset", "-q", "--hard", "HEAD~1"]).await.unwrap();
+        std::fs::write(wt.join("a.txt"), "one\nuncommitted\n").unwrap();
+        let conflicts = merge_base_branch(&wt, "main").await.unwrap();
+        assert_eq!(conflicts, vec!["a.txt".to_string()]);
         assert!(!sync_status(&wt, "main").await.unwrap().merging);
     }
 

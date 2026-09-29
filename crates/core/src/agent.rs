@@ -85,11 +85,12 @@ pub struct Agents {
     emitter: Emitter,
     sessions: Mutex<HashMap<String, Arc<LiveSession>>>,
     defs: Mutex<Vec<AgentDef>>,
+    file_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 impl Agents {
     pub fn new(store: Arc<Store>, emitter: Emitter) -> Self {
-        Self { store, emitter, sessions: Mutex::default(), defs: Mutex::new(builtin_agents()) }
+        Self { store, emitter, sessions: Mutex::default(), defs: Mutex::new(builtin_agents()), file_locks: Mutex::default() }
     }
 
     pub fn defs(&self) -> Vec<AgentDef> {
@@ -645,13 +646,14 @@ impl Agents {
             .unwrap_or_default();
         let Some(slug) = crate::workspace::branch_slug(title) else { return };
         let path = std::path::Path::new(&ws.path);
-        if !settings.rename_branches || !ws.branch.ends_with(&ws.name) || crate::git::has_upstream(path).await {
+        let pushed = crate::git::has_upstream(path).await || crate::git::remote_branch_exists(path, &ws.branch).await;
+        if !settings.rename_branches || !ws.branch.ends_with(&ws.name) || pushed {
             return;
         }
         let prefix = &ws.branch[..ws.branch.len() - ws.name.len()];
         let mut branch = format!("{prefix}{slug}");
         let mut n = 2;
-        while crate::git::branch_exists(path, &branch).await {
+        while crate::git::branch_exists(path, &branch).await || crate::git::remote_branch_exists(path, &branch).await {
             branch = format!("{prefix}{slug}-{n}");
             n += 1;
         }
@@ -684,7 +686,7 @@ impl Agents {
         if s.running.swap(true, Ordering::SeqCst) {
             bail!("agent is still working");
         }
-        if !s.titled.load(Ordering::SeqCst) {
+        if !s.titled.load(Ordering::SeqCst) && !text.trim().is_empty() {
             self.auto_title(&s, &text);
         }
         self.emitter.emit(Event::UserMessage {
@@ -714,7 +716,14 @@ impl Agents {
                 if let (false, Some(list)) = (notes.is_empty(), blocks.as_array_mut()) {
                     list.push(json!({"type": "text", "text": format!("<system-reminder>\n{}\n</system-reminder>", notes.join("\n"))}));
                 }
-                conn.request("session/prompt", json!({"sessionId": acp_id, "prompt": blocks})).await
+                let r = conn.request("session/prompt", json!({"sessionId": acp_id, "prompt": blocks})).await;
+                if r.is_err() {
+                    // Keep them for the next attempt.
+                    let mut pending = s.notes.lock();
+                    let later = std::mem::take(&mut *pending);
+                    *pending = notes.into_iter().chain(later).collect();
+                }
+                r
             }
             .await;
             s.running.store(false, Ordering::SeqCst);
@@ -745,11 +754,18 @@ impl Agents {
     /// Snapshot the worktree before a turn so the user can go back to it.
     /// Best-effort: a failure only means there's no restore point.
     async fn checkpoint(&self, s: &LiveSession) {
+        let lock = self.workspace_lock(&s.workspace_id);
+        let _guard = lock.lock().await;
         let refname = format!("refs/runner/checkpoints/{}/{}", s.id, now());
         match crate::git::checkpoint(&s.cwd, &refname).await {
             Ok(commit) => self.emitter.emit(Event::Checkpoint { session_id: s.id.clone(), commit }),
             Err(e) => log::warn!("checkpoint failed: {e:#}"),
         }
+    }
+
+    /// Serializes snapshotting and restoring a workspace's files.
+    pub fn workspace_lock(&self, workspace_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.file_locks.lock().entry(workspace_id.to_string()).or_default().clone()
     }
 
     /// Tell every open chat of a workspace something along with its next prompt.
@@ -934,7 +950,8 @@ impl Agents {
 /// small text files are embedded (all our agents support embedded context),
 /// others are passed as links for the agent to read itself.
 fn prompt_blocks(text: &str, cwd: &std::path::Path) -> Value {
-    let mut blocks = vec![json!({"type": "text", "text": text})];
+    // No empty text block (e.g. images only): the model API rejects those.
+    let mut blocks = if text.trim().is_empty() { vec![] } else { vec![json!({"type": "text", "text": text})] };
     let mut seen = std::collections::HashSet::new();
     for word in text.split_whitespace() {
         let Some(path) = word.strip_prefix('@') else { continue };
@@ -1084,6 +1101,7 @@ mod tests {
         assert_eq!(blocks.len(), 2);
         assert_eq!(blocks[1]["type"], "resource");
         assert_eq!(blocks[1]["resource"]["text"], "x");
+        assert_eq!(prompt_blocks("  ", dir.path()), json!([]));
         assert!(blocks[1]["resource"]["uri"].as_str().unwrap().ends_with("/src/a.ts"));
     }
 
