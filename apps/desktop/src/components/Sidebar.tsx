@@ -132,6 +132,13 @@ function RepoGroup({ repo }: { repo: Repo }) {
           </button>
         )}
         <button
+          onClick={() => actions.openNewFrom(repo.id)}
+          title="New workspace from a branch or pull request (⌘⇧N)"
+          className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"
+        >
+          <GitBranch size={12} />
+        </button>
+        <button
           onClick={() => openRepoSettings(repo.id)}
           title="Repository settings (scripts, files to copy)"
           className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"

@@ -81,6 +81,80 @@ pub async fn add_worktree(repo: &Path, path: &Path, branch: &str) -> Result<()> 
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Branch {
+    pub name: String,
+    /// Only on origin so far (checking it out creates a tracking branch).
+    pub remote: bool,
+    /// Last commit, ms since epoch.
+    pub updated_at: i64,
+    pub subject: String,
+}
+
+/// Local branches plus origin's branches that have no local copy, most
+/// recently committed first.
+pub async fn branches(repo: &Path) -> Result<Vec<Branch>> {
+    let out = git(
+        repo,
+        &["for-each-ref", "--sort=-committerdate", "--format=%(refname)%00%(committerdate:unix)%00%(subject)", "refs/heads", "refs/remotes/origin"],
+    )
+    .await?;
+    let mut list: Vec<Branch> = Vec::new();
+    for line in out.lines() {
+        let mut cols = line.split('\0');
+        let (Some(r), Some(date), subject) = (cols.next(), cols.next(), cols.next().unwrap_or("")) else { continue };
+        let (name, remote) = match (r.strip_prefix("refs/heads/"), r.strip_prefix("refs/remotes/origin/")) {
+            (Some(n), _) => (n, false),
+            (_, Some("HEAD")) => continue,
+            (_, Some(n)) => (n, true),
+            _ => continue,
+        };
+        if list.iter().any(|b| b.name == name) {
+            continue;
+        }
+        list.push(Branch {
+            name: name.to_string(),
+            remote,
+            updated_at: date.parse::<i64>().unwrap_or(0) * 1000,
+            subject: subject.to_string(),
+        });
+    }
+    // A remote branch listed before its local copy: keep it as local.
+    let local: Vec<String> = git(repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).await?.lines().map(str::to_string).collect();
+    for b in &mut list {
+        if b.remote && local.contains(&b.name) {
+            b.remote = false;
+        }
+    }
+    Ok(list)
+}
+
+/// Where `branch` is checked out (main checkout or another worktree), if anywhere.
+pub async fn checked_out_at(repo: &Path, branch: &str) -> Option<String> {
+    let out = git(repo, &["worktree", "list", "--porcelain"]).await.ok()?;
+    let mut path = None;
+    for line in out.lines() {
+        if let Some(p) = line.strip_prefix("worktree ") {
+            path = Some(p.to_string());
+        } else if line.strip_prefix("branch refs/heads/") == Some(branch) {
+            return path;
+        }
+    }
+    None
+}
+
+/// Make sure a local branch exists for `branch`, creating one that tracks
+/// origin's if needed (fetching it first).
+pub async fn ensure_local_branch(repo: &Path, branch: &str) -> Result<()> {
+    if branch_exists(repo, branch).await {
+        return Ok(());
+    }
+    let _ = git(repo, &["fetch", "-q", "origin", branch]).await;
+    git(repo, &["branch", "--track", branch, &format!("origin/{branch}")]).await?;
+    Ok(())
+}
+
 /// Stash uncommitted work (including untracked, not ignored, files) under a
 /// recognizable message. Returns false when there was nothing to save.
 pub async fn stash_save(wt: &Path, message: &str) -> Result<bool> {
@@ -402,6 +476,28 @@ mod tests {
 
         remove_worktree(&repo, &wt).await.unwrap();
         assert!(!wt.exists());
+    }
+
+    #[tokio::test]
+    async fn lists_and_checks_out_remote_branches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let origin = tmp.path().join("origin");
+        std::fs::create_dir(&origin).unwrap();
+        init_repo(&origin).await;
+        git(&origin, &["branch", "feature"]).await.unwrap();
+        let clone = tmp.path().join("clone");
+        git(tmp.path(), &["clone", "-q", &origin.to_string_lossy(), &clone.to_string_lossy()]).await.unwrap();
+
+        let list = branches(&clone).await.unwrap();
+        let names: Vec<(&str, bool)> = list.iter().map(|b| (b.name.as_str(), b.remote)).collect();
+        assert!(names.contains(&("main", false)) && names.contains(&("feature", true)), "{names:?}");
+        assert_eq!(list[0].subject, "init");
+
+        ensure_local_branch(&clone, "feature").await.unwrap();
+        let wt = tmp.path().join("wt");
+        add_worktree(&clone, &wt, "feature").await.unwrap();
+        assert!(has_upstream(&wt).await);
+        assert!(branches(&clone).await.unwrap().iter().all(|b| !b.remote));
     }
 
     #[tokio::test]

@@ -66,6 +66,8 @@ type State = {
   /** bumped whenever a workspace's files may have changed */
   changesTick: Record<string, number>;
   toast: { text: string; kind: "error" | "info" } | null;
+  /** repo whose "New workspace from branch or PR" dialog is open */
+  newFromRepo: string | null;
   /** unsent composer text per session */
   drafts: Record<string, string>;
   /** images attached in the composer (stored attachment paths) per session */
@@ -96,6 +98,7 @@ export const useStore = create<State>(() => ({
   scriptLog: {},
   changesTick: {},
   toast: null,
+  newFromRepo: null,
   drafts: {},
   attachments: {},
   settings: null,
@@ -316,6 +319,10 @@ export const actions = {
     if (usage) set({ usage });
   },
 
+  openNewFrom(repoId: string | null) {
+    set({ newFromRepo: repoId });
+  },
+
   openInsights() {
     set({ page: "insights" });
   },
@@ -353,8 +360,19 @@ export const actions = {
 
   async createWorkspace(repoId: string) {
     const ws = await guard(api.createWorkspace(repoId));
-    if (!ws) return;
-    set({ workspaces: [ws, ...get().workspaces], sessions: { ...get().sessions, [ws.id]: [] }, selectedWorkspace: ws.id });
+    if (ws) await actions.workspaceCreated(ws);
+  },
+
+  /** Workspace on an existing branch or a PR's branch. */
+  async createWorkspaceFrom(repoId: string, branch: string | null, pr: number | null) {
+    const ws = await guard(api.createWorkspaceFrom(repoId, branch, pr));
+    if (ws) await actions.workspaceCreated(ws);
+    return !!ws;
+  },
+
+  /** Show a new workspace and open its first chat. */
+  async workspaceCreated(ws: Workspace) {
+    set({ workspaces: [ws, ...get().workspaces], sessions: { ...get().sessions, [ws.id]: [] }, selectedWorkspace: ws.id, page: "workspace" });
     const first = get().settings?.loadout[0];
     if (first) await actions.createSession(ws.id, first.agent, first.model, first.effort);
     else await actions.createSession(ws.id, get().settings?.defaultAgent ?? "claude");

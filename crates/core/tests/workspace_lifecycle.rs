@@ -65,3 +65,40 @@ async fn create_archive_restore() {
     // Restoring something that isn't archived is an error.
     assert!(core.restore_workspace(&ws.id).await.is_err());
 }
+
+#[tokio::test]
+async fn workspace_from_an_existing_branch() {
+    let tmp = tempfile::tempdir().unwrap();
+    let origin = tmp.path().join("origin");
+    std::fs::create_dir(&origin).unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["config", "user.email", "t@t"],
+        &["config", "user.name", "t"],
+        &["commit", "-q", "--allow-empty", "-m", "init"],
+        &["branch", "feature/login"],
+    ] {
+        git::git(&origin, args).await.unwrap();
+    }
+    let repo = tmp.path().join("repo");
+    git::git(tmp.path(), &["clone", "-q", &origin.to_string_lossy(), &repo.to_string_lossy()]).await.unwrap();
+
+    let core = Core::new(&tmp.path().join("data"), Arc::new(|_| {})).unwrap();
+    let mut settings = core.settings();
+    settings.workspaces_root = tmp.path().join("ws").to_string_lossy().into();
+    core.save_settings(&settings).unwrap();
+    let r = core.add_repo(&repo.to_string_lossy()).await.unwrap();
+
+    assert!(core.branches(&r.id).await.unwrap().iter().any(|b| b.name == "feature/login" && b.remote));
+    // The main checkout's branch can't be checked out twice.
+    assert!(core.create_workspace_from(&r.id, Some("main"), None).await.is_err());
+
+    let ws = core.create_workspace_from(&r.id, Some("feature/login"), None).await.unwrap();
+    assert_eq!(ws.branch, "feature/login");
+    wait_status(&core, &ws.id, "ready").await;
+    let path = Path::new(&ws.path);
+    assert_eq!(git::git(path, &["branch", "--show-current"]).await.unwrap().trim(), "feature/login");
+    assert!(git::has_upstream(path).await, "tracks origin's branch");
+    // Opening the same branch again is refused.
+    assert!(core.create_workspace_from(&r.id, Some("feature/login"), None).await.is_err());
+}

@@ -95,6 +95,22 @@ async fn create_workspace(app: State<'_, App>, repo_id: String) -> Res<Workspace
 }
 
 #[tauri::command]
+async fn create_workspace_from(app: State<'_, App>, repo_id: String, branch: Option<String>, pr: Option<u64>) -> Res<Workspace> {
+    app.core.create_workspace_from(&repo_id, branch.as_deref(), pr).await.map_err(err)
+}
+
+#[tauri::command]
+async fn list_branches(app: State<'_, App>, repo_id: String) -> Res<Value> {
+    let list = app.core.branches(&repo_id).await.map_err(err)?;
+    serde_json::to_value(list).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn open_prs(app: State<'_, App>, repo_id: String) -> Res<Vec<Value>> {
+    app.core.open_prs(&repo_id).await.map_err(err)
+}
+
+#[tauri::command]
 fn rename_workspace(app: State<'_, App>, workspace_id: String, title: String) -> Res<()> {
     app.core.rename_workspace(&workspace_id, &title).map_err(err)
 }
@@ -461,6 +477,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
                 sub.remove(&old)?;
             }
             sub.append(&item("new-workspace", "New Workspace", "CmdOrCtrl+N")?)?;
+            sub.append(&item("new-workspace-from", "New Workspace from Branch or PR…", "CmdOrCtrl+Shift+N")?)?;
             sub.append(&item("new-chat", "New Chat", "CmdOrCtrl+T")?)?;
             sub.append(&PredefinedMenuItem::separator(handle)?)?;
             sub.append(&item("palette", "Command Palette…", "CmdOrCtrl+K")?)?;
@@ -502,6 +519,9 @@ pub fn run() {
             clone_repo,
             list_workspaces,
             create_workspace,
+            create_workspace_from,
+            list_branches,
+            open_prs,
             archive_workspace,
             list_all_workspaces,
             rename_workspace,

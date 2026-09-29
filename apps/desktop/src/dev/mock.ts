@@ -235,6 +235,26 @@ const handlers: Record<string, (a: any) => any> = {
     }, 2000);
     return { ...ws };
   },
+  list_branches: () => [
+    { name: "feature/dark-mode", remote: false, updatedAt: Date.now() - 2 * 3600e3, subject: "Add theme toggle" },
+    { name: "fix/checkout-race", remote: true, updatedAt: Date.now() - 3 * 86400e3, subject: "Serialize cart updates" },
+    { name: "main", remote: false, updatedAt: Date.now() - 600e3, subject: "Merge #41" },
+  ],
+  open_prs: async () => {
+    await sleep(300);
+    return [
+      { number: 44, title: "Upgrade to React 19.3", headRefName: "deps/react-19", baseRefName: "main", author: { login: "octocat" }, isCrossRepository: false, isDraft: false, updatedAt: new Date(Date.now() - 5 * 3600e3).toISOString() },
+      { number: 43, title: "Docs: rate limits", headRefName: "docs-limits", baseRefName: "main", author: { login: "contrib" }, isCrossRepository: true, isDraft: true, updatedAt: new Date(Date.now() - 86400e3).toISOString() },
+    ];
+  },
+  create_workspace_from: async (a) => {
+    await sleep(300);
+    const ws = handlers.create_workspace(a);
+    const target = workspaces.find((w) => w.id === ws.id)!;
+    target.branch = ws.branch = a.branch ?? `pr-${a.pr}`;
+    target.title = ws.title = a.pr ? `PR #${a.pr}` : "";
+    return ws;
+  },
   create_session: (a) => {
     const x = { id: `s${Date.now()}`, workspaceId: a.workspaceId, agentId: a.agentId, acpSessionId: null, title: "", createdAt: Date.now() };
     sessions[a.workspaceId] = [...(sessions[a.workspaceId] ?? []), x];

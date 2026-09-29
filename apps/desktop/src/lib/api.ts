@@ -91,6 +91,18 @@ export type ConfigOption = {
   options?: SelectOption[] | { group: string; name: string; options: SelectOption[] }[];
 };
 
+export type Branch = { name: string; remote: boolean; updatedAt: number; subject: string };
+export type OpenPr = {
+  number: number;
+  title: string;
+  headRefName: string;
+  baseRefName: string;
+  author: { login: string } | null;
+  isCrossRepository: boolean;
+  isDraft: boolean;
+  updatedAt: string;
+};
+
 export type SyncStatus = { ahead: number; behind: number; merging: boolean; conflicts: string[] };
 
 export type PermissionOption = { optionId: string; name: string; kind: string };
@@ -153,6 +165,10 @@ export const api = {
   removeRepo: (repoId: string) => invoke<void>("remove_repo", { repoId }),
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
   createWorkspace: (repoId: string) => invoke<Workspace>("create_workspace", { repoId }),
+  createWorkspaceFrom: (repoId: string, branch: string | null, pr: number | null) =>
+    invoke<Workspace>("create_workspace_from", { repoId, branch, pr }),
+  listBranches: (repoId: string) => invoke<Branch[]>("list_branches", { repoId }),
+  openPrs: (repoId: string) => invoke<OpenPr[]>("open_prs", { repoId }),
   listAllWorkspaces: () => invoke<Workspace[]>("list_all_workspaces"),
   restoreWorkspace: (workspaceId: string) => invoke<Workspace>("restore_workspace", { workspaceId }),
   archiveWorkspace: (workspaceId: string) => invoke<void>("archive_workspace", { workspaceId }),

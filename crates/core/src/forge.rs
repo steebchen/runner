@@ -30,6 +30,19 @@ pub async fn list_prs(repo: &Path) -> Result<Vec<Value>> {
     Ok(serde_json::from_str(&out)?)
 }
 
+/// Open PRs to start a workspace from, newest first.
+pub async fn open_prs(repo: &Path) -> Result<Vec<Value>> {
+    let fields = "number,title,headRefName,baseRefName,author,isCrossRepository,updatedAt,isDraft";
+    let out = gh(repo, &["pr", "list", "--state", "open", "--limit", "100", "--json", fields]).await?;
+    Ok(serde_json::from_str(&out)?)
+}
+
+/// One PR's branch info, by number.
+pub async fn pr_head(repo: &Path, number: u64) -> Result<Value> {
+    let out = gh(repo, &["pr", "view", &number.to_string(), "--json", "number,title,headRefName,baseRefName,isCrossRepository"]).await?;
+    Ok(serde_json::from_str(&out)?)
+}
+
 /// PR for the branch, or `None` if there isn't one yet.
 pub async fn pr_status(wt: &Path, branch: &str) -> Result<Option<Value>> {
     match gh(wt, &["pr", "view", branch, "--json", PR_FIELDS]).await {

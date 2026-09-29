@@ -13,6 +13,7 @@ import { Toast } from "./components/Toast";
 import { AgentSetup, Settings } from "./components/Settings";
 import { Home } from "./components/Home";
 import { Insights } from "./components/Insights";
+import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
 
 export async function pickRepo() {
   const path = await open({ directory: true, title: "Choose a git repository" });
@@ -31,6 +32,11 @@ function runCommand(id: string, setPalette: (open: boolean | ((o: boolean) => bo
     case "new-workspace": {
       const repoId = ws?.repoId ?? s.repos[0]?.id;
       if (repoId) void actions.createWorkspace(repoId);
+      return;
+    }
+    case "new-workspace-from": {
+      const repoId = ws?.repoId ?? s.repos[0]?.id;
+      if (repoId) actions.openNewFrom(repoId);
       return;
     }
     case "new-chat": {
@@ -64,6 +70,7 @@ export function App() {
   const hasRepos = useStore((s) => s.repos.length > 0);
   const page = useStore((s) => s.page);
   const [palette, setPalette] = useState(false);
+  const newFromRepo = useStore((s) => s.newFromRepo);
 
   useEffect(() => {
     void actions.init();
@@ -106,6 +113,9 @@ export function App() {
           e.preventDefault();
           void actions.createWorkspace(repoId);
         }
+      } else if (e.key.toLowerCase() === "n" && e.shiftKey) {
+        e.preventDefault();
+        runCommand("new-workspace-from", setPalette);
       } else if (e.key === "o" && e.shiftKey) {
         e.preventDefault();
         void pickRepo();
@@ -154,6 +164,7 @@ export function App() {
       </main>
       <Toast />
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {newFromRepo && <NewWorkspaceDialog repoId={newFromRepo} onClose={() => actions.openNewFrom(null)} />}
     </div>
   );
 }

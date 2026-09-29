@@ -131,6 +131,18 @@ impl Core {
         Ok(repo)
     }
 
+    /// Branches to start a workspace from.
+    pub async fn branches(&self, repo_id: &str) -> Result<Vec<git::Branch>> {
+        let repo = self.store.repo(repo_id)?;
+        git::branches(Path::new(&repo.path)).await
+    }
+
+    /// Open pull requests to start a workspace from.
+    pub async fn open_prs(&self, repo_id: &str) -> Result<Vec<Value>> {
+        let repo = self.store.repo(repo_id)?;
+        forge::open_prs(Path::new(&repo.path)).await
+    }
+
     /// Repositories the user recently used with coding agents, not yet added.
     pub async fn recent_projects(&self, limit: usize) -> Result<Vec<recent::RecentProject>> {
         let added: Vec<String> = self.store.repos()?.into_iter().map(|r| r.path).collect();
@@ -160,6 +172,45 @@ impl Core {
     // ---- workspaces ----
 
     pub async fn create_workspace(self: &Arc<Self>, repo_id: &str) -> Result<Workspace> {
+        self.new_workspace(repo_id, None).await
+    }
+
+    /// Start a workspace on an existing branch (local or only on origin) or
+    /// on a pull request's branch.
+    pub async fn create_workspace_from(self: &Arc<Self>, repo_id: &str, branch: Option<&str>, pr: Option<u64>) -> Result<Workspace> {
+        let repo = self.store.repo(repo_id)?;
+        let repo_path = PathBuf::from(&repo.path);
+        let (branch, base, title) = match (branch, pr) {
+            (_, Some(n)) => {
+                let head = forge::pr_head(&repo_path, n).await?;
+                let base = head["baseRefName"].as_str().unwrap_or(&repo.default_branch).to_string();
+                let title = head["title"].as_str().unwrap_or_default().to_string();
+                if head["isCrossRepository"].as_bool() == Some(true) {
+                    // A fork's branch: fetch the PR head into a local branch.
+                    let local = format!("pr-{n}");
+                    if !git::branch_exists(&repo_path, &local).await {
+                        git::git(&repo_path, &["fetch", "-q", "origin", &format!("pull/{n}/head:{local}")]).await?;
+                    }
+                    (local, base, title)
+                } else {
+                    let b = head["headRefName"].as_str().ok_or_else(|| anyhow!("PR #{n} has no branch"))?;
+                    (b.to_string(), base, title)
+                }
+            }
+            (Some(b), None) => (b.trim().to_string(), repo.default_branch.clone(), String::new()),
+            (None, None) => bail!("choose a branch or pull request"),
+        };
+        if let Some(open) = self.store.workspaces()?.iter().find(|w| w.repo_id == repo.id && w.branch == branch) {
+            bail!("`{branch}` is already open in workspace {}", if open.title.is_empty() { &open.name } else { &open.title });
+        }
+        if let Some(at) = git::checked_out_at(&repo_path, &branch).await {
+            bail!("`{branch}` is checked out at {at}; switch that checkout to another branch first");
+        }
+        self.new_workspace(repo_id, Some((branch, base, title))).await
+    }
+
+    /// New workspace on a fresh branch, or on `existing` (branch, base, title).
+    async fn new_workspace(self: &Arc<Self>, repo_id: &str, existing: Option<(String, String, String)>) -> Result<Workspace> {
         let repo = self.store.repo(repo_id)?;
         let repo_path = PathBuf::from(&repo.path);
         let settings = self.settings();
@@ -177,16 +228,19 @@ impl Core {
             n += 1;
         }
         let path = root.join(&name);
+        let new_branch = existing.is_none();
+        let (branch, base_branch, title) =
+            existing.unwrap_or_else(|| (format!("{prefix}{name}"), repo.default_branch.clone(), String::new()));
         let ws = Workspace {
             id: uuid::Uuid::new_v4().to_string(),
             repo_id: repo.id.clone(),
-            branch: format!("{prefix}{name}"),
+            branch,
             name,
-            base_branch: repo.default_branch.clone(),
+            base_branch,
             path: path.to_string_lossy().to_string(),
             status: "creating".into(),
             created_at: now(),
-            title: String::new(),
+            title,
             archived_at: None,
             unread: false,
         };
@@ -194,7 +248,7 @@ impl Core {
 
         // Fetching and checking out can take a while on big repos; return right
         // away and let the UI show progress via WorkspaceStatus events.
-        self.spawn_worktree_setup(ws.clone(), repo, true);
+        self.spawn_worktree_setup(ws.clone(), repo, new_branch);
         Ok(ws)
     }
 
@@ -256,6 +310,7 @@ impl Core {
         if new_branch {
             git::create_worktree(repo_path, &path, &ws.branch, &ws.base_branch).await?;
         } else {
+            git::ensure_local_branch(repo_path, &ws.branch).await?;
             git::add_worktree(repo_path, &path, &ws.branch).await?;
             if let Some(stash) = git::stash_find(repo_path, &archive_marker(&ws.id)).await {
                 if let Err(e) = git::stash_pop(&path, &stash).await {

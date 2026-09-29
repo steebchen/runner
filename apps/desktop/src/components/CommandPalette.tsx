@@ -75,6 +75,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         group: "Actions",
         run: () => actions.createWorkspace(r.id),
       });
+      out.push({
+        id: `new-from:${r.id}`,
+        label: `New workspace in ${r.name} from a branch or PR`,
+        hint: r.id === ws?.repoId ? "⌘⇧N" : undefined,
+        icon: <GitBranch size={13} />,
+        group: "Actions",
+        run: () => actions.openNewFrom(r.id),
+      });
     }
     out.push(
       { id: "home", label: "Home: all workspaces", icon: <House size={13} />, group: "Go to", run: () => actions.openHome() },
