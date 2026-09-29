@@ -27,13 +27,9 @@ fn red_png() -> Vec<u8> {
         out.extend(crc(&body).to_be_bytes());
     }
     let (w, h) = (64u32, 64u32);
-    let mut raw = Vec::new();
-    for _ in 0..h {
-        raw.push(0);
-        for _ in 0..w {
-            raw.extend([255, 0, 0]);
-        }
-    }
+    // Each row: filter byte 0, then RGB pixels.
+    let row: Vec<u8> = std::iter::once(0).chain((0..w).flat_map(|_| [255, 0, 0])).collect();
+    let raw = row.repeat(h as usize);
     let (mut a, mut b) = (1u32, 0u32);
     for &x in &raw {
         a = (a + x as u32) % 65521;
@@ -78,7 +74,8 @@ async fn main() -> anyhow::Result<()> {
     let mut text = String::new();
     for _ in 0..1200 {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        for e in std::mem::take(&mut *events.lock()) {
+        let batch = std::mem::take(&mut *events.lock());
+        for e in batch {
             match e {
                 Event::SessionUpdate { update, .. } if update["sessionUpdate"] == "agent_message_chunk" => {
                     text.push_str(update["content"]["text"].as_str().unwrap_or(""));
