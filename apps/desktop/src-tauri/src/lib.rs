@@ -159,13 +159,28 @@ fn session_events(app: State<'_, App>, session_id: String) -> Res<Vec<Value>> {
 }
 
 #[tauri::command]
-async fn send_prompt(app: State<'_, App>, session_id: String, text: String) -> Res<()> {
-    app.core.agents.prompt(&session_id, text).map_err(err)
+async fn send_prompt(app: State<'_, App>, session_id: String, text: String, images: Option<Vec<String>>) -> Res<()> {
+    app.core.agents.prompt_with(&session_id, text, images.unwrap_or_default()).map_err(err)
 }
 
 #[tauri::command]
-async fn steer(app: State<'_, App>, session_id: String, text: String) -> Res<String> {
-    app.core.agents.steer(&session_id, text).await.map(str::to_string).map_err(err)
+async fn steer(app: State<'_, App>, session_id: String, text: String, images: Option<Vec<String>>) -> Res<String> {
+    app.core.agents.steer_with(&session_id, text, images.unwrap_or_default()).await.map(str::to_string).map_err(err)
+}
+
+#[tauri::command]
+async fn save_attachment(app: State<'_, App>, mime_type: String, data: String) -> Res<String> {
+    app.core.save_attachment(&mime_type, &data).map_err(err)
+}
+
+#[tauri::command]
+async fn import_attachment(app: State<'_, App>, path: String) -> Res<String> {
+    app.core.import_attachment(&path).map_err(err)
+}
+
+#[tauri::command]
+async fn attachment_data_url(app: State<'_, App>, path: String) -> Res<String> {
+    app.core.attachment_data_url(&path).map_err(err)
 }
 
 #[tauri::command]
@@ -476,6 +491,9 @@ pub fn run() {
             answer_question,
             set_plan_mode,
             restore_checkpoint,
+            save_attachment,
+            import_attachment,
+            attachment_data_url,
             changed_files,
             file_diff,
             list_files,

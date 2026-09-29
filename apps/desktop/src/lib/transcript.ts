@@ -18,7 +18,7 @@ export type ToolCall = {
 export type PlanEntry = { content: string; priority: string; status: "pending" | "in_progress" | "completed" };
 
 export type Item =
-  | { kind: "user"; key: string; text: string; ts: number; checkpoint?: string }
+  | { kind: "user"; key: string; text: string; ts: number; images?: string[]; checkpoint?: string }
   | { kind: "restored"; key: string; commit: string; undo: string | null; ts: number }
   | { kind: "assistant"; key: string; messageId?: string; text: string }
   | { kind: "thought"; key: string; messageId?: string; text: string }
@@ -53,7 +53,7 @@ export function applyEvents(t: Transcript, events: CoreEvent[]): Transcript {
   for (const e of events) {
     switch (e.type) {
       case "userMessage":
-        items.push({ kind: "user", key: key(), text: e.text, ts: e.ts });
+        items.push({ kind: "user", key: key(), text: e.text, ts: e.ts, images: e.images?.length ? e.images : undefined });
         planIndex = null;
         break;
       case "checkpoint":

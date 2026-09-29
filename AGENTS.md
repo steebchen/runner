@@ -28,6 +28,7 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
                           configOptions (short discovery session or live sessions)
   src/workspace.rs        runner.json config, workspace naming
   src/recent.rs           "Recents" for Add repository, from Claude/Codex history
+  src/attachments.rs      Images attached to prompts, copied into the data dir
   src/usage.rs            Cost of usage rows: agent-reported, or estimated from
                           tokens with user prices (Settings → Pricing)
   src/env.rs              Login-shell env capture (GUI apps lack the user's PATH)
@@ -74,6 +75,7 @@ RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p runner-core --test gi
 - **Questions:** Runner advertises `elicitation.form`, so agents ask structured questions over ACP `elicitation/create` (Claude's AskUserQuestion, Codex's request_user_input). Questions are never auto-answered. `lib/questions.ts` normalizes both schema styles, `QuestionCard.tsx` walks the user through them, and the answer goes back as `{action: accept|decline|cancel, content}`. Real-agent check: `cargo run -p runner-core --example ask -- <repo> claude|codex`.
 - **Menus and shortcuts:** app-level shortcuts are native menu items (`install_menu` in the Tauri crate) that emit a `menu` event; `runCommand` in `App.tsx` handles them, and the same ids are used for the in-page fallbacks.
 - **Usage and cost:** every finished turn stores a `usage` row (tokens, model, cost). Claude/OpenCode report a running cost total per agent process, so a turn's cost is the difference between reports; the first report after a reconnect is compared with what's already recorded, because resumed sessions continue their old total. Codex reports tokens only; estimates are computed at read time from `Settings → Pricing`, so new prices apply retroactively. Real check: `cargo run -p runner-core --example usage -- <repo> claude|codex`.
+- **Images:** pasted, picked or dropped images are stored by `attachments.rs` in the app data dir; prompts carry their paths (`Agents::prompt_with`) and send ACP image blocks when the agent advertises `promptCapabilities.image` (otherwise file links). `UserMessage` events keep the paths so history shows thumbnails.
 - **Checkpoints:** before each prompt the agent layer snapshots the worktree (`git::checkpoint`: a commit of all non-ignored files, parent = HEAD, kept under `refs/runner/checkpoints/<session>/`) and emits a persisted `Checkpoint` event. `Core::restore_checkpoint` puts HEAD and files back (after taking an undo checkpoint) and queues a note for the workspace's agents with their next prompt.
 - **Permissions:** sessions auto-accept every permission request by default. Plan mode (Shift+Tab in the composer) forwards requests to the user. Agent permission pickers are hidden in the UI.
 - **Platform-specific code stays isolated** (e.g. `open -a` in the Tauri layer), so Linux and Windows remain additive.

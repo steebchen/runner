@@ -12,6 +12,9 @@ export type PendingQuestion = {
   receivedAt: number;
 };
 
+/** A follow-up waiting for the current turn to end. */
+export type Queued = { text: string; images: string[] };
+
 export type SlashCommand = { name: string; description?: string | null; input?: { hint?: string | null } | null };
 
 export type SessionView = {
@@ -28,7 +31,7 @@ export type SessionView = {
   /** plan mode (agent asks before acting); otherwise everything is auto-accepted */
   plan: boolean;
   /** follow-ups typed while the agent was working, sent when the turn ends */
-  queued: string[];
+  queued: Queued[];
   /** a queued message is being edited: hold the queue until it's saved */
   queueHeld: boolean;
   /** slash commands the agent advertises (ACP available_commands_update) */
@@ -65,6 +68,8 @@ type State = {
   toast: { text: string; kind: "error" | "info" } | null;
   /** unsent composer text per session */
   drafts: Record<string, string>;
+  /** images attached in the composer (stored attachment paths) per session */
+  attachments: Record<string, string[]>;
   settings: Settings | null;
   agentStatus: AgentStatus[] | null;
   page: "workspace" | "settings" | "home" | "insights";
@@ -92,6 +97,7 @@ export const useStore = create<State>(() => ({
   changesTick: {},
   toast: null,
   drafts: {},
+  attachments: {},
   settings: null,
   agentStatus: null,
   page: "workspace",
@@ -216,7 +222,7 @@ function handleEvents(events: CoreEvent[]) {
     if (finished && finished.type === "turnEnd" && finished.stopReason === "end_turn" && v.queued.length && !v.queueHeld) {
       const [next, ...rest] = v.queued;
       v.queued = rest;
-      setTimeout(() => void actions.send(sessionId, next), 0);
+      setTimeout(() => void actions.send(sessionId, next.text, next.images), 0);
     }
     views[sessionId] = v;
   }
@@ -497,9 +503,9 @@ export const actions = {
   },
 
   /** Queue a follow-up while the agent works; it's sent when the turn ends. */
-  queue(sessionId: string, text: string) {
+  queue(sessionId: string, text: string, images: string[] = []) {
     const v = get().views[sessionId];
-    if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: [...v.queued, text] } } });
+    if (v) set({ views: { ...get().views, [sessionId]: { ...v, queued: [...v.queued, { text, images }] } } });
   },
 
   unqueue(sessionId: string, index: number) {
@@ -511,16 +517,16 @@ export const actions = {
    * without steering, the turn is stopped first). Put back on failure. */
   async steerQueued(sessionId: string, index: number) {
     const v = get().views[sessionId];
-    const text = v?.queued[index];
-    if (!v || text === undefined) return;
+    const item = v?.queued[index];
+    if (!v || item === undefined) return;
     actions.unqueue(sessionId, index);
     try {
-      await api.steer(sessionId, text);
+      await api.steer(sessionId, item.text, item.images);
     } catch (e) {
       const cur = get().views[sessionId];
       if (cur) {
         const queued = cur.queued.slice();
-        queued.splice(Math.min(index, queued.length), 0, text);
+        queued.splice(Math.min(index, queued.length), 0, item);
         set({ views: { ...get().views, [sessionId]: { ...cur, queued } } });
       }
       toast(String(e));
@@ -538,7 +544,8 @@ export const actions = {
   editQueued(sessionId: string, index: number, text: string) {
     const v = get().views[sessionId];
     if (!v) return;
-    const queued = text.trim() ? v.queued.map((q, i) => (i === index ? text.trim() : q)) : v.queued.filter((_, i) => i !== index);
+    const keep = (q: Queued) => q.text || q.images.length;
+    const queued = v.queued.map((q, i) => (i === index ? { ...q, text: text.trim() } : q)).filter(keep);
     set({ views: { ...get().views, [sessionId]: { ...v, queued } } });
   },
 
@@ -548,11 +555,35 @@ export const actions = {
     if (!v || v.queueHeld || !v.queued.length || v.state === "running" || v.state === "connecting") return;
     const [next, ...rest] = v.queued;
     set({ views: { ...get().views, [sessionId]: { ...v, queued: rest } } });
-    void actions.send(sessionId, next);
+    void actions.send(sessionId, next.text, next.images);
   },
 
-  async send(sessionId: string, text: string) {
-    await guard(api.sendPrompt(sessionId, text));
+  async send(sessionId: string, text: string, images: string[] = []) {
+    await guard(api.sendPrompt(sessionId, text, images));
+  },
+
+  /** Attach image files (copied into the app's data folder). */
+  async attachFiles(sessionId: string, paths: string[]) {
+    for (const p of paths) {
+      const stored = await guard(api.importAttachment(p));
+      if (stored) actions.setAttachments(sessionId, [...(get().attachments[sessionId] ?? []), stored]);
+    }
+  },
+
+  /** Attach pasted image data. */
+  async attachBlob(sessionId: string, blob: Blob) {
+    const data = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(",", 2)[1] ?? "");
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+    const stored = await guard(api.saveAttachment(blob.type, data));
+    if (stored) actions.setAttachments(sessionId, [...(get().attachments[sessionId] ?? []), stored]);
+  },
+
+  setAttachments(sessionId: string, images: string[]) {
+    set({ attachments: { ...get().attachments, [sessionId]: images } });
   },
 
   async cancel(sessionId: string) {

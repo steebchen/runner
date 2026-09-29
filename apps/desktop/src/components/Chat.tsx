@@ -1,8 +1,9 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
-import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type SlashCommand } from "../lib/store";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type Queued, type SlashCommand, toast } from "../lib/store";
+import { ImageThumb } from "./ImageThumb";
 import { useShallow } from "zustand/react/shallow";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -61,7 +62,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
           <ArrowDown size={12} /> Jump to latest
         </button>
       )}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         {loaded && items.length === 0 && <EmptyChat state={state} />}
         <div className="relative mx-auto w-full max-w-3xl" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((row) => (
@@ -111,8 +112,17 @@ const Row = memo(function Row({ item, sessionId }: { item: Item; sessionId: stri
       return (
         <div className="group flex items-start justify-end gap-1.5 pt-5 pb-1">
           {item.checkpoint && <RestoreButton sessionId={sessionId} commit={item.checkpoint} />}
-          <div className="selectable max-w-[85%] rounded-xl bg-hover px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap">
-            {item.text}
+          <div className="flex max-w-[85%] flex-col items-end gap-1.5">
+            {item.images && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {item.images.map((p) => (
+                  <ImageThumb key={p} path={p} size={96} />
+                ))}
+              </div>
+            )}
+            {item.text && (
+              <div className="selectable rounded-xl bg-hover px-3.5 py-2 text-[13.5px] leading-relaxed whitespace-pre-wrap">{item.text}</div>
+            )}
           </div>
         </div>
       );
@@ -212,7 +222,8 @@ function RestoreButton({ sessionId, commit }: { sessionId: string; commit: strin
 }
 
 /** A queued follow-up: dismiss it, or edit it (which holds the queue until saved). */
-function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: number; text: string }) {
+function QueuedMessage({ sessionId, index, item }: { sessionId: string; index: number; item: Queued }) {
+  const { text, images } = item;
   const running = useStore((s) => s.views[sessionId]?.state === "running");
   const canSteer = useStore((s) => {
     const agent = Object.values(s.sessions).flat().find((x) => x.id === sessionId)?.agentId;
@@ -284,6 +295,11 @@ function QueuedMessage({ sessionId, index, text }: { sessionId: string; index: n
     <div className="flex items-start gap-2 text-xs text-muted">
       <Clock size={11} className="mt-0.5 shrink-0" />
       <span className="line-clamp-2 min-w-0 flex-1 cursor-text whitespace-pre-wrap" onClick={start} title="Click to edit">
+        {images.length > 0 && (
+          <span className="mr-1.5 inline-flex items-center gap-0.5 text-faint">
+            <ImageIcon size={11} className="inline" /> {images.length}
+          </span>
+        )}
         {text}
       </span>
       {running && (
@@ -328,7 +344,7 @@ function CopyButton({ text }: { text: string }) {
         });
       }}
       title="Copy"
-      className="absolute -right-7 top-2 rounded p-1 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg"
+      className="absolute -right-5 top-2 rounded p-1 text-faint opacity-0 transition-opacity group-hover:opacity-100 hover:bg-hover hover:text-fg"
     >
       {done ? <Check size={12} /> : <Copy size={12} />}
     </button>
@@ -422,14 +438,57 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
   const [suggest, setSuggest] = useState<{ start: number; kind: "file" | "command"; items: Suggestion[] } | null>(null);
   const [suggestIndex, setSuggestIndex] = useState(0);
 
+  const images = useStore((s) => s.attachments[sessionId]) ?? EMPTY_IMAGES;
+  const canSend = !!draft.trim() || images.length > 0;
   const send = () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!canSend) return;
     actions.setDraft(sessionId, "");
+    actions.setAttachments(sessionId, []);
     // While the agent works, follow-ups wait and go out when the turn ends.
-    if (running) actions.queue(sessionId, text);
-    else void actions.send(sessionId, text);
+    if (running) actions.queue(sessionId, text, images);
+    else void actions.send(sessionId, text, images);
   };
+
+  const onPaste = (e: React.ClipboardEvent) => {
+    const files = [...e.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+    if (!files.length) return;
+    e.preventDefault();
+    for (const f of files) void actions.attachBlob(sessionId, f);
+  };
+
+  const pickImages = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({ multiple: true, title: "Attach images", filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp"] }] });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length) await actions.attachFiles(sessionId, paths);
+    ref.current?.focus();
+  };
+
+  // Files dropped on the window go to the open chat (Tauri delivers paths).
+  const [dropping, setDropping] = useState(false);
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let unlisten: (() => void) | undefined;
+    let live = true;
+    void import("@tauri-apps/api/webview").then(({ getCurrentWebview }) =>
+      getCurrentWebview()
+        .onDragDropEvent((e) => {
+          if (e.payload.type === "over" || e.payload.type === "enter") setDropping(true);
+          else setDropping(false);
+          if (e.payload.type === "drop") {
+            const paths = e.payload.paths.filter((p) => /\.(png|jpe?g|gif|webp)$/i.test(p));
+            if (paths.length) void actions.attachFiles(sessionId, paths);
+            else if (e.payload.paths.length) toast("Only images (PNG, JPEG, GIF, WebP) can be attached", "info");
+          }
+        })
+        .then((u) => (live ? (unlisten = u) : u())),
+    );
+    return () => {
+      live = false;
+      unlisten?.();
+    };
+  }, [sessionId]);
 
   const updateSuggestions = (text: string, caret: number) => {
     const cmd = /^\/(\S*)$/.exec(text.slice(0, caret));
@@ -489,7 +548,12 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
   };
 
   return (
-    <div className="relative rounded-xl border border-border bg-elevated shadow-sm focus-within:border-accent/60">
+    <div
+      className={clsx(
+        "relative rounded-xl border bg-elevated shadow-sm focus-within:border-accent/60",
+        dropping ? "border-accent border-dashed" : "border-border",
+      )}
+    >
       {suggestOpen && (
         <div className="absolute bottom-full left-2 z-30 mb-1 w-[min(520px,90%)] overflow-hidden rounded-lg border border-border bg-elevated p-1 shadow-xl">
           {suggest.items.map((it, i) => (
@@ -511,13 +575,21 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
       {queued.length > 0 && (
         <div className="space-y-1 border-b border-border px-3 pt-2 pb-2">
           {queued.map((q, i) => (
-            <QueuedMessage key={`${i}:${q}`} sessionId={sessionId} index={i} text={q} />
+            <QueuedMessage key={`${i}:${q.text}`} sessionId={sessionId} index={i} item={q} />
+          ))}
+        </div>
+      )}
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2 px-3 pt-3">
+          {images.map((p) => (
+            <ImageThumb key={p} path={p} size={56} onRemove={() => actions.setAttachments(sessionId, images.filter((x) => x !== p))} />
           ))}
         </div>
       )}
       <textarea
         ref={ref}
         value={draft}
+        onPaste={onPaste}
         onChange={(e) => {
           actions.setDraft(sessionId, e.target.value);
           updateSuggestions(e.target.value, e.target.selectionStart);
@@ -583,6 +655,9 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           <ConfigControl key={c.id} sessionId={sessionId} option={c} />
         ))}
         <div className="flex-1" />
+        <button onClick={() => void pickImages()} title="Attach images (or paste / drop them)" className="shrink-0 rounded p-1 text-faint hover:bg-hover hover:text-fg">
+          <Paperclip size={13} />
+        </button>
         <SessionCost sessionId={sessionId} />
         {usage && usage.size > 0 && <ContextUsage used={usage.used} size={usage.size} />}
         {running ? (
@@ -592,7 +667,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
         ) : (
           <button
             onClick={send}
-            disabled={!draft.trim()}
+            disabled={!canSend}
             title="Send (Enter)"
             className="rounded-md bg-accent p-1.5 text-accent-fg disabled:opacity-40"
           >
@@ -605,7 +680,8 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
 }
 
 const EMPTY_CONFIG: ConfigOption[] = [];
-const EMPTY_QUEUE: string[] = [];
+const EMPTY_QUEUE: Queued[] = [];
+const EMPTY_IMAGES: string[] = [];
 const EMPTY_COMMANDS: SlashCommand[] = [];
 type Suggestion = { value: string; label: string; detail: string };
 

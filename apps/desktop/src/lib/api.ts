@@ -95,7 +95,7 @@ export type AcpUpdate = { sessionUpdate: string; [key: string]: any };
 
 export type CoreEvent =
   | { type: "sessionUpdate"; sessionId: string; update: AcpUpdate }
-  | { type: "userMessage"; sessionId: string; text: string; ts: number }
+  | { type: "userMessage"; sessionId: string; text: string; ts: number; images?: string[] }
   | { type: "checkpoint"; sessionId: string; commit: string }
   | { type: "checkpointRestored"; sessionId: string; commit: string; undo: string | null; ts: number }
   | { type: "turnEnd"; sessionId: string; stopReason: string; ts: number }
@@ -163,8 +163,12 @@ export const api = {
   connectSession: (sessionId: string) => invoke<void>("connect_session", { sessionId }),
   deleteSession: (sessionId: string) => invoke<void>("delete_session", { sessionId }),
   sessionEvents: (sessionId: string) => invoke<CoreEvent[]>("session_events", { sessionId }),
-  sendPrompt: (sessionId: string, text: string) => invoke<void>("send_prompt", { sessionId, text }),
-  steer: (sessionId: string, text: string) => invoke<"injected" | "interrupted" | "sent">("steer", { sessionId, text }),
+  sendPrompt: (sessionId: string, text: string, images: string[] = []) => invoke<void>("send_prompt", { sessionId, text, images }),
+  steer: (sessionId: string, text: string, images: string[] = []) =>
+    invoke<"injected" | "interrupted" | "sent">("steer", { sessionId, text, images }),
+  saveAttachment: (mimeType: string, data: string) => invoke<string>("save_attachment", { mimeType, data }),
+  importAttachment: (path: string) => invoke<string>("import_attachment", { path }),
+  attachmentDataUrl: (path: string) => invoke<string>("attachment_data_url", { path }),
   cancelPrompt: (sessionId: string) => invoke<void>("cancel_prompt", { sessionId }),
   respondPermission: (sessionId: string, requestId: string, optionId: string | null) =>
     invoke<void>("respond_permission", { sessionId, requestId, optionId }),

@@ -4,6 +4,7 @@
 
 pub mod acp;
 pub mod agent;
+pub mod attachments;
 pub mod catalog;
 pub mod env;
 pub mod events;
@@ -59,6 +60,7 @@ impl Emitter {
 
 pub struct Core {
     pub store: Arc<Store>,
+    data_dir: PathBuf,
     pub agents: Arc<Agents>,
     pub terminals: pty::Terminals,
     emitter: Emitter,
@@ -78,6 +80,7 @@ impl Core {
         });
         Ok(Arc::new(Self {
             store,
+            data_dir: data_dir.to_path_buf(),
             agents,
             terminals: Default::default(),
             emitter,
@@ -422,6 +425,26 @@ impl Core {
         });
         self.emitter.emit(Event::WorkspaceStatus { workspace_id: session.workspace_id, status: "dirty".into() });
         Ok(undo)
+    }
+
+    // ---- attachments ----
+
+    fn attachments_dir(&self) -> PathBuf {
+        self.data_dir.join("attachments")
+    }
+
+    /// Store a pasted image (base64). Returns the path to attach to a prompt.
+    pub fn save_attachment(&self, mime_type: &str, data: &str) -> Result<String> {
+        attachments::save(&self.attachments_dir(), mime_type, data)
+    }
+
+    /// Attach an image file by copying it. Returns the copy's path.
+    pub fn import_attachment(&self, path: &str) -> Result<String> {
+        attachments::import(&self.attachments_dir(), path)
+    }
+
+    pub fn attachment_data_url(&self, path: &str) -> Result<String> {
+        attachments::data_url(&self.attachments_dir(), path)
     }
 
     // ---- usage & cost ----

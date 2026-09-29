@@ -67,6 +67,8 @@ struct LiveSession {
     config: Mutex<Value>,
     /// The agent accepts `_session/steering` (messages injected mid-turn).
     steering: AtomicBool,
+    /// The agent accepts image content in prompts.
+    images: AtomicBool,
     /// Latest cumulative cost the agent process reported (Claude and OpenCode
     /// report a running total per process), and this turn's share of it.
     cost_reported: Mutex<Option<f64>>,
@@ -130,6 +132,7 @@ impl Agents {
             applying_mode: AtomicBool::new(false),
             config: Mutex::new(json!([])),
             steering: AtomicBool::new(false),
+            images: AtomicBool::new(true),
             cost_reported: Mutex::new(None),
             turn_cost: Mutex::new(None),
             initial: Mutex::new(None),
@@ -209,6 +212,10 @@ impl Agents {
         let caps = init.get("agentCapabilities").cloned().unwrap_or(Value::Null);
         s.steering.store(
             init.pointer("/_meta/steering/supported").and_then(|v| v.as_bool()).unwrap_or(false),
+            Ordering::SeqCst,
+        );
+        s.images.store(
+            caps.pointer("/promptCapabilities/image").and_then(|v| v.as_bool()).unwrap_or(false),
             Ordering::SeqCst,
         );
         let cwd = s.cwd.to_string_lossy().to_string();
@@ -620,6 +627,11 @@ impl Agents {
     }
 
     pub fn prompt(self: &Arc<Self>, session_id: &str, text: String) -> Result<()> {
+        self.prompt_with(session_id, text, Vec::new())
+    }
+
+    /// Prompt with attached images (paths of image files).
+    pub fn prompt_with(self: &Arc<Self>, session_id: &str, text: String, images: Vec<String>) -> Result<()> {
         let s = self.get(session_id)?;
         if s.running.swap(true, Ordering::SeqCst) {
             bail!("agent is still working");
@@ -631,6 +643,7 @@ impl Agents {
             session_id: s.id.clone(),
             text: text.clone(),
             ts: now(),
+            images: images.clone(),
         });
         self.state(&s, "running", None);
         self.emitter.emit(Event::WorkspaceStatus {
@@ -646,6 +659,9 @@ impl Agents {
                 this.checkpoint(&s).await;
                 let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
                 let mut blocks = prompt_blocks(&text, &s.cwd);
+                if let Some(list) = blocks.as_array_mut() {
+                    list.extend(image_blocks(&images, s.images.load(Ordering::SeqCst)));
+                }
                 let notes: Vec<String> = s.notes.lock().drain(..).collect();
                 if let (false, Some(list)) = (notes.is_empty(), blocks.as_array_mut()) {
                     list.push(json!({"type": "text", "text": format!("<system-reminder>\n{}\n</system-reminder>", notes.join("\n"))}));
@@ -708,20 +724,28 @@ impl Agents {
     /// prompted. With no turn running it's an ordinary prompt.
     /// Returns "injected", "interrupted" or "sent".
     pub async fn steer(self: &Arc<Self>, session_id: &str, text: String) -> Result<&'static str> {
+        self.steer_with(session_id, text, Vec::new()).await
+    }
+
+    pub async fn steer_with(self: &Arc<Self>, session_id: &str, text: String, images: Vec<String>) -> Result<&'static str> {
         let s = self.get(session_id)?;
         if !s.running.load(Ordering::SeqCst) {
-            self.prompt(session_id, text)?;
+            self.prompt_with(session_id, text, images)?;
             return Ok("sent");
         }
         let conn = s.conn.lock().await.clone();
         if let (true, Some(conn)) = (s.steering.load(Ordering::SeqCst), conn) {
             let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
+            let mut blocks = prompt_blocks(&text, &s.cwd);
+            if let Some(list) = blocks.as_array_mut() {
+                list.extend(image_blocks(&images, s.images.load(Ordering::SeqCst)));
+            }
             let r = conn
                 .request(
                     "_session/steering",
                     json!({
                         "sessionId": acp_id,
-                        "prompt": prompt_blocks(&text, &s.cwd),
+                        "prompt": blocks,
                         // If the turn just ended, hand the message back so it
                         // goes through a normal, tracked session/prompt.
                         "_meta": {"steering": {"idleBehavior": "promptRequired"}}
@@ -730,11 +754,11 @@ impl Agents {
                 .await?;
             return match r["outcome"].as_str().unwrap_or("") {
                 "injected" | "startedNewTurn" => {
-                    self.emitter.emit(Event::UserMessage { session_id: s.id.clone(), text, ts: now() });
+                    self.emitter.emit(Event::UserMessage { session_id: s.id.clone(), text, ts: now(), images });
                     Ok("injected")
                 }
                 "promptRequired" => {
-                    self.prompt(session_id, text)?;
+                    self.prompt_with(session_id, text, images)?;
                     Ok("sent")
                 }
                 other => bail!("the agent couldn't take the message right now ({other})"),
@@ -744,7 +768,7 @@ impl Agents {
         self.cancel(session_id).await?;
         for _ in 0..300 {
             if !s.running.load(Ordering::SeqCst) {
-                self.prompt(session_id, text)?;
+                self.prompt_with(session_id, text, images)?;
                 return Ok("interrupted");
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -882,6 +906,29 @@ fn prompt_blocks(text: &str, cwd: &std::path::Path) -> Value {
         });
     }
     Value::Array(blocks)
+}
+
+/// Image files as ACP image blocks, or as links to the files for agents
+/// that don't take images directly (they can still open them).
+fn image_blocks(paths: &[String], supported: bool) -> Vec<Value> {
+    use base64::Engine;
+    paths
+        .iter()
+        .filter_map(|path| {
+            let uri = format!("file://{path}");
+            if !supported {
+                let name = std::path::Path::new(path).file_name()?.to_string_lossy().to_string();
+                return Some(json!({"type": "resource_link", "uri": uri, "name": name}));
+            }
+            let data = std::fs::read(path).ok()?;
+            Some(json!({
+                "type": "image",
+                "mimeType": crate::attachments::mime_type(path),
+                "data": base64::engine::general_purpose::STANDARD.encode(data),
+                "uri": uri,
+            }))
+        })
+        .collect()
 }
 
 /// Prefer "always" so the agent stops asking for the same tool.

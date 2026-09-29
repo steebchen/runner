@@ -101,8 +101,8 @@ const patch = `diff --git a/src/server/limiter.ts b/src/server/limiter.ts
 +}
  export default limits;`;
 
-async function streamReply(sessionId: string, text: string) {
-  emit({ type: "userMessage", sessionId, text, ts: Date.now() }, { type: "sessionState", sessionId, state: "running", error: null }, { type: "checkpoint", sessionId, commit: `c${Date.now()}` });
+async function streamReply(sessionId: string, text: string, images?: string[]) {
+  emit({ type: "userMessage", sessionId, text, ts: Date.now(), images }, { type: "sessionState", sessionId, state: "running", error: null }, { type: "checkpoint", sessionId, commit: `c${Date.now()}` });
   await sleep(300);
   emit({ type: "sessionUpdate", sessionId, update: { sessionUpdate: "tool_call", toolCallId: `x${Date.now()}`, title: "Run pnpm test", kind: "execute", status: "in_progress" } });
   const words = "Sure — I'll handle that. First I'll check the existing tests, then make the change and run the suite again to confirm everything passes.".split(" ");
@@ -114,6 +114,7 @@ async function streamReply(sessionId: string, text: string) {
 }
 
 let pricing: Record<string, any> = {};
+const attachments = new Map<string, string>();
 function usageRows() {
   const rows: any[] = [];
   let seed = 7;
@@ -214,7 +215,7 @@ const handlers: Record<string, (a: any) => any> = {
         emit({ type: "workspaceTitle", workspaceId: ws.id, title: ws.title }, { type: "sessionTitle", sessionId: a.sessionId, title: ws.title });
       }, 1500);
     }
-    void streamReply(a.sessionId, a.text);
+    void streamReply(a.sessionId, a.text, a.images);
   },
   create_workspace: (a) => {
     const n = workspaces.length + 1;
@@ -237,6 +238,13 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  save_attachment: (a) => {
+    const path = `/mock/attachments/${Date.now()}.png`;
+    attachments.set(path, `data:${a.mimeType};base64,${a.data}`);
+    return path;
+  },
+  import_attachment: (a) => a.path,
+  attachment_data_url: (a) => attachments.get(a.path) ?? "data:image/svg+xml;base64," + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="#8ab"/></svg>'),
   restore_checkpoint: (a) => {
     const undo = `u${Date.now()}`;
     emit({ type: "checkpointRestored", sessionId: a.sessionId, commit: a.commit, undo, ts: Date.now() });

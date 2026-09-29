@@ -9,7 +9,14 @@ use serde_json::Value;
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     SessionUpdate { session_id: String, update: Value },
-    UserMessage { session_id: String, text: String, ts: i64 },
+    UserMessage {
+        session_id: String,
+        text: String,
+        ts: i64,
+        /// Attached images (files in the app's attachments folder).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        images: Vec<String>,
+    },
     /// Snapshot of the worktree taken right before the last user message was
     /// sent, so the files can be put back to how they were.
     Checkpoint { session_id: String, commit: String },
