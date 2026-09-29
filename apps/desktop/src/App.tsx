@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { FolderPlus } from "lucide-react";
 import { actions, toast, useStore } from "./lib/store";
 import { api } from "./lib/api";
@@ -22,6 +23,12 @@ export function App() {
 
   useEffect(() => {
     void actions.init();
+    // "Settings…" (⌘,) in the native app menu.
+    let unlisten: (() => void) | undefined;
+    listen("open-settings", () => actions.openSettings(true))
+      .then((u) => (unlisten = u))
+      .catch(() => {});
+    return () => unlisten?.();
   }, []);
 
   useEffect(() => {

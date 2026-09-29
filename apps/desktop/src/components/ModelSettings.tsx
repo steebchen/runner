@@ -13,7 +13,7 @@ export function ModelSettings() {
   const statuses = useStore((s) => s.agentStatus);
   const [refreshing, setRefreshing] = useState(false);
   const loadout = settings.loadout;
-  const { itemProps, overIndex } = useReorder(loadout, (next) => actions.saveSettings({ loadout: next }));
+  const { itemProps, overIndex, dragIndex } = useReorder(loadout, (next) => actions.saveSettings({ loadout: next }));
 
   const save = (next: LoadoutEntry[]) => actions.saveSettings({ loadout: next });
   const toggle = (agent: string, model: string) => {
@@ -56,6 +56,7 @@ export function ModelSettings() {
               className={clsx(
                 "group relative flex w-32 cursor-grab flex-col items-start gap-1 rounded-lg border bg-elevated px-3 pt-6 pb-2.5",
                 overIndex === i ? "border-accent" : "border-border",
+                dragIndex === i && "opacity-50",
               )}
             >
               {i === 0 && (
@@ -64,6 +65,7 @@ export function ModelSettings() {
                 </span>
               )}
               <button
+                data-no-drag
                 onClick={() => save(loadout.filter((_, j) => j !== i))}
                 className="absolute top-1.5 right-1.5 hidden rounded p-0.5 text-faint group-hover:block hover:bg-hover hover:text-fg"
                 title="Remove"

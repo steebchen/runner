@@ -24,6 +24,8 @@ export type Session = {
   acpSessionId: string | null;
   title: string;
   createdAt: number;
+  model: string | null;
+  effort: string | null;
 };
 
 export type AgentDef = { id: string; name: string; command: string; args: string[] };
@@ -123,6 +125,7 @@ export const api = {
     invoke<Session>("create_session", { workspaceId, agentId, model: model ?? null, effort: effort ?? null }),
   modelCatalogs: () => invoke<Record<string, Catalog>>("model_catalogs"),
   refreshCatalog: (agentId: string) => invoke<Catalog>("refresh_catalog", { agentId }),
+  connectSession: (sessionId: string) => invoke<void>("connect_session", { sessionId }),
   deleteSession: (sessionId: string) => invoke<void>("delete_session", { sessionId }),
   sessionEvents: (sessionId: string) => invoke<CoreEvent[]>("session_events", { sessionId }),
   sendPrompt: (sessionId: string, text: string) => invoke<void>("send_prompt", { sessionId, text }),

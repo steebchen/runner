@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { ArrowUpRight, Check, ChevronDown, ChevronRight, GripVertical, Search, Settings as SettingsIcon, Zap } from "lucide-react";
-import type { ConfigOption, LoadoutEntry } from "../lib/api";
+import { api, type ConfigOption, type LoadoutEntry } from "../lib/api";
 import { actions, useStore } from "../lib/store";
 import {
   AGENT_NAMES,
@@ -57,17 +57,29 @@ export function ModelPicker(props: Props) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  const catalogs = useStore((s) => s.catalogs);
+  const session = useStore((s) => (s.sessions[props.workspaceId] ?? []).find((x) => x.id === props.sessionId));
   const m = modelOption(config);
   const e = effortOption(config);
-  const current = flatOptions(m).find((o) => o.value === m?.currentValue);
-  const label = m ? modelName(agentId, current, String(m.currentValue)) : AGENT_NAMES[agentId] ?? agentId;
-  const effort = e ? flatOptions(e).find((o) => o.value === e.currentValue)?.name : null;
+  // Live config when the agent is running, otherwise the chat's last known model.
+  const modelValue = m ? String(m.currentValue) : session?.model;
+  const label = modelValue
+    ? modelName(agentId, flatOptions(m).find((o) => o.value === modelValue) ?? findModel(catalogs, agentId, modelValue), modelValue)
+    : (AGENT_NAMES[agentId] ?? agentId);
+  const effortValue = e ? String(e.currentValue) : session?.effort;
+  const effort = effortValue
+    ? (flatOptions(e).find((o) => o.value === effortValue)?.name ?? effortName(catalogs, agentId, effortValue))
+    : null;
 
   return (
     <>
       <button
         ref={triggerRef}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Start a dormant chat's agent so effort/fast options show up.
+          if (!open && !m) void api.connectSession(props.sessionId).catch(() => {});
+          setOpen((o) => !o);
+        }}
         className={clsx("flex shrink-0 items-center gap-1.5 rounded px-1.5 py-1 text-xs hover:bg-hover", open ? "bg-hover text-fg" : "text-fg/80")}
         title="Model and effort"
       >
@@ -119,7 +131,7 @@ function Popover({ anchor, onClose, ...props }: Props & { anchor: HTMLElement; o
 
   useEffect(() => setActive(0), [q]);
 
-  const { itemProps, overIndex } = useReorder(settings.loadout, (loadout) => actions.saveSettings({ loadout }));
+  const { itemProps, overIndex, dragIndex } = useReorder(settings.loadout, (loadout) => actions.saveSettings({ loadout }));
 
   const pick = (entry: LoadoutEntry) => {
     onClose();
@@ -181,6 +193,8 @@ function Popover({ anchor, onClose, ...props }: Props & { anchor: HTMLElement; o
                 "group flex items-center gap-2 rounded-lg px-2 py-2 text-[13px]",
                 i === active && "bg-hover",
                 draggable && overIndex === index && "ring-1 ring-accent",
+                draggable && dragIndex === index && "opacity-50",
+                draggable && "select-none",
               )}
             >
               {!q && <GripVertical size={13} className="shrink-0 cursor-grab text-faint" />}

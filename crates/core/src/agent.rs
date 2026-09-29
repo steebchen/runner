@@ -331,6 +331,14 @@ impl Agents {
         if let Some(catalog) = crate::catalog::from_config(&opts) {
             crate::catalog::save(&self.store, &s.agent.id, &catalog);
         }
+        let current = |o: Option<&Value>| o.and_then(|o| o["currentValue"].as_str()).map(str::to_string);
+        let (model, effort) = (
+            current(crate::catalog::model_option(&opts)),
+            current(crate::catalog::effort_option(&opts)),
+        );
+        if model.is_some() || effort.is_some() {
+            let _ = self.store.set_session_model(&s.id, model.as_deref(), effort.as_deref());
+        }
         *s.config.lock() = opts.clone();
         self.emitter.emit(Event::SessionConfig { session_id: s.id.clone(), config_options: opts });
     }

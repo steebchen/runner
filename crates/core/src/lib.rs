@@ -323,6 +323,8 @@ impl Core {
             acp_session_id: None,
             title: String::new(),
             created_at: now(),
+            model: model.clone(),
+            effort: effort.clone(),
         };
         self.store.add_session(&session)?;
         self.agents.preset(&session.id, self.settings().plan_by_default, model, effort)?;

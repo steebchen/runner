@@ -43,6 +43,9 @@ pub struct Session {
     pub acp_session_id: Option<String>,
     pub title: String,
     pub created_at: i64,
+    /// Last known model/effort, so the UI can show them before the agent runs.
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 pub fn now() -> i64 {
@@ -81,7 +84,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     agent_id TEXT NOT NULL,
     acp_session_id TEXT,
     title TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    model TEXT,
+    effort TEXT
 );
 CREATE TABLE IF NOT EXISTS events (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,15 +256,15 @@ impl Store {
 
     pub fn add_session(&self, s: &Session) -> Result<()> {
         self.conn.lock().execute(
-            "INSERT INTO sessions (id, workspace_id, agent_id, acp_session_id, title, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![s.id, s.workspace_id, s.agent_id, s.acp_session_id, s.title, s.created_at],
+            "INSERT INTO sessions (id, workspace_id, agent_id, acp_session_id, title, created_at, model, effort) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![s.id, s.workspace_id, s.agent_id, s.acp_session_id, s.title, s.created_at, s.model, s.effort],
         )?;
         Ok(())
     }
 
     pub fn session(&self, id: &str) -> Result<Session> {
         Ok(self.conn.lock().query_row(
-            "SELECT id, workspace_id, agent_id, acp_session_id, title, created_at FROM sessions WHERE id = ?1",
+            "SELECT id, workspace_id, agent_id, acp_session_id, title, created_at, model, effort FROM sessions WHERE id = ?1",
             [id],
             row_to_session,
         )?)
@@ -268,7 +273,7 @@ impl Store {
     pub fn sessions(&self, workspace_id: &str) -> Result<Vec<Session>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, workspace_id, agent_id, acp_session_id, title, created_at FROM sessions WHERE workspace_id = ?1 ORDER BY created_at",
+            "SELECT id, workspace_id, agent_id, acp_session_id, title, created_at, model, effort FROM sessions WHERE workspace_id = ?1 ORDER BY created_at",
         )?;
         let rows = stmt.query_map([workspace_id], row_to_session)?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -278,6 +283,14 @@ impl Store {
         self.conn.lock().execute(
             "UPDATE sessions SET acp_session_id = ?2 WHERE id = ?1",
             params![id, acp_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_session_model(&self, id: &str, model: Option<&str>, effort: Option<&str>) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE sessions SET model = COALESCE(?2, model), effort = COALESCE(?3, effort) WHERE id = ?1",
+            params![id, model, effort],
         )?;
         Ok(())
     }
@@ -330,6 +343,8 @@ fn migrate(conn: &Connection) -> Result<()> {
     add_column("workspaces", "title", "TEXT NOT NULL DEFAULT ''")?;
     add_column("workspaces", "archived_at", "INTEGER")?;
     add_column("workspaces", "unread", "INTEGER NOT NULL DEFAULT 0")?;
+    add_column("sessions", "model", "TEXT")?;
+    add_column("sessions", "effort", "TEXT")?;
     Ok(())
 }
 
@@ -420,6 +435,8 @@ fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         acp_session_id: r.get(3)?,
         title: r.get(4)?,
         created_at: r.get(5)?,
+        model: r.get(6)?,
+        effort: r.get(7)?,
     })
 }
 

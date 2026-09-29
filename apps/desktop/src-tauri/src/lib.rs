@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use runner_core::{AgentDef, Core, Event, Repo, Session, Workspace};
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{Manager, RunEvent, State};
+use tauri::{Emitter, Manager, RunEvent, State};
 
 type Res<T> = Result<T, String>;
 
@@ -128,6 +128,13 @@ async fn create_session(
     effort: Option<String>,
 ) -> Res<Session> {
     app.core.create_session(&workspace_id, &agent_id, model, effort).map_err(err)
+}
+
+/// Start a chat's agent without prompting (e.g. to show its model options).
+#[tauri::command]
+async fn connect_session(app: State<'_, App>, session_id: String) -> Res<()> {
+    app.core.agents.warm_up(&session_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -334,6 +341,25 @@ fn open_path(path: String, app_name: Option<String>) -> Res<()> {
     status.success().then_some(()).ok_or_else(|| format!("could not open {path}"))
 }
 
+/// Default macOS menus plus "Settings…" (⌘,) in the app menu.
+fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+    let handle = app.handle();
+    let menu = Menu::default(handle)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let settings = MenuItem::with_id(handle, "settings", "Settings…", true, Some("CmdOrCtrl+,"))?;
+        app_menu.insert(&PredefinedMenuItem::separator(handle)?, 1)?;
+        app_menu.insert(&settings, 2)?;
+    }
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        if event.id().as_ref() == "settings" {
+            let _ = app.emit("open-settings", ());
+        }
+    });
+    Ok(())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -347,6 +373,7 @@ pub fn run() {
             let poller = core.clone();
             tauri::async_runtime::spawn(async move { poller.start_pr_poller() });
             app.manage(App { core, bus });
+            install_menu(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -366,6 +393,7 @@ pub fn run() {
             list_sessions,
             create_session,
             delete_session,
+            connect_session,
             session_events,
             send_prompt,
             cancel_prompt,

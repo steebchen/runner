@@ -181,6 +181,9 @@ const handlers: Record<string, (a: any) => any> = {
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
   }),
   refresh_prs: () => {},
+  "plugin:event|listen": () => 0,
+  "plugin:event|unlisten": () => {},
+  connect_session: () => {},
   model_catalogs: () => catalogs,
   refresh_catalog: async (a) => {
     await sleep(300);
