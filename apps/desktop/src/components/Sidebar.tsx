@@ -214,7 +214,8 @@ const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; 
         </div>
         <div className="flex items-center gap-1 pl-4 text-[11px] text-muted">
           <GitBranch size={10} className="shrink-0" />
-          <span className="truncate">{ws.status === "creating" ? "Creating worktree…" : ws.branch}</span>
+          <span className="min-w-0 flex-1 truncate">{ws.status === "creating" ? "Creating worktree…" : ws.branch}</span>
+          <DiffStat workspaceId={ws.id} />
         </div>
       </div>
       {menu && (
@@ -233,6 +234,16 @@ const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; 
     </>
   );
 });
+
+function DiffStat({ workspaceId }: { workspaceId: string }) {
+  const stats = useStore((s) => s.diffStats[workspaceId]);
+  if (!stats?.files) return null;
+  return (
+    <span className="shrink-0 font-mono text-[10px]" title={`${stats.files} changed file${stats.files === 1 ? "" : "s"}`}>
+      <span className="text-add-fg">+{stats.add}</span> <span className="text-del-fg">−{stats.del}</span>
+    </span>
+  );
+}
 
 /** Failed/pending checks icon, then the PR icon + number in its state color. */
 function PrBadge({ pr }: { pr: PrStatus }) {

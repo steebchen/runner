@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, type ModelPrice, type PrStatus, type Settings, type Usage, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
+import { api, type ChangedFile, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, type ModelPrice, type PrStatus, type Settings, type Usage, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
 import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
 
 export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
@@ -14,6 +14,8 @@ export type PendingQuestion = {
 
 /** A follow-up waiting for the current turn to end. */
 export type Queued = { text: string; images: string[] };
+
+export type DiffStats = { files: number; add: number; del: number };
 
 export type SlashCommand = { name: string; description?: string | null; input?: { hint?: string | null } | null };
 
@@ -65,6 +67,8 @@ type State = {
   scriptLog: Record<string, string>;
   /** bumped whenever a workspace's files may have changed */
   changesTick: Record<string, number>;
+  /** lines added/removed on each workspace's branch (incl. uncommitted) */
+  diffStats: Record<string, DiffStats>;
   toast: { text: string; kind: "error" | "info" } | null;
   /** repo whose "New workspace from branch or PR" dialog is open */
   newFromRepo: string | null;
@@ -97,6 +101,7 @@ export const useStore = create<State>(() => ({
   selectedSession: {},
   scriptLog: {},
   changesTick: {},
+  diffStats: {},
   toast: null,
   newFromRepo: null,
   drafts: {},
@@ -234,7 +239,24 @@ function handleEvents(events: CoreEvent[]) {
     views[sessionId] = v;
   }
   set({ views, scriptLog, changesTick, sessions });
+  if (changesTick !== s.changesTick) {
+    for (const id of Object.keys(changesTick)) if (changesTick[id] !== s.changesTick[id]) scheduleDiffStats(id);
+  }
   for (const a of attention) notifyAttention(a);
+}
+
+const statsTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Refresh a workspace's diff stats soon (coalescing bursts of changes). */
+function scheduleDiffStats(workspaceId: string, delay = 1500) {
+  clearTimeout(statsTimers.get(workspaceId));
+  statsTimers.set(
+    workspaceId,
+    setTimeout(() => {
+      statsTimers.delete(workspaceId);
+      void actions.refreshDiffStats(workspaceId);
+    }, delay),
+  );
 }
 
 type Attention = { sessionId: string; kind: "done" | "input"; detail?: string };
@@ -303,7 +325,22 @@ export const actions = {
     });
     const views: Record<string, SessionView> = {};
     for (const l of lists) for (const x of l) views[x.id] = newView(false);
+    workspaces.forEach((w, i) => scheduleDiffStats(w.id, 500 + i * 150));
     set({ ready: true, prs: prs ?? {}, catalogs: catalogs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
+  },
+
+  async refreshDiffStats(workspaceId: string) {
+    const ws = get().workspaces.find((w) => w.id === workspaceId);
+    if (!ws || ws.status === "creating" || ws.status === "failed") return;
+    const files = await api.changedFiles(workspaceId).catch(() => null);
+    if (files) actions.setDiffStats(workspaceId, files);
+  },
+
+  setDiffStats(workspaceId: string, files: ChangedFile[]) {
+    const next = files.reduce((t, f) => ({ files: t.files + 1, add: t.add + (f.additions ?? 0), del: t.del + (f.deletions ?? 0) }), { files: 0, add: 0, del: 0 });
+    const cur = get().diffStats[workspaceId];
+    if (cur && cur.files === next.files && cur.add === next.add && cur.del === next.del) return;
+    set({ diffStats: { ...get().diffStats, [workspaceId]: next } });
   },
 
   async loadUsage() {

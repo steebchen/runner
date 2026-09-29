@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ArrowUpRight, Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
+import { Archive, ArrowUpRight, Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
 import { PR_TAB } from "./PrView";
 import { api, type Workspace } from "../lib/api";
 import { checkSummary, prAppearance } from "../lib/pr";
@@ -109,6 +109,15 @@ export function PrActions({ workspace, sessionId }: { workspace: Workspace; sess
           className="flex items-center gap-1 rounded px-1.5 py-1 text-muted hover:bg-hover hover:text-fg"
         >
           <Wrench size={12} /> Fix checks
+        </button>
+      )}
+      {pr.state !== "OPEN" && (
+        <button
+          onClick={() => void actions.archiveWorkspace(workspace.id)}
+          title="Remove the worktree (the branch is kept, and the workspace can be restored from Home)"
+          className="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 font-medium text-accent-fg"
+        >
+          <Archive size={12} /> Archive
         </button>
       )}
       {pr.state === "OPEN" && (

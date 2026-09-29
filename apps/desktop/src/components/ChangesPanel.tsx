@@ -48,6 +48,7 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
     try {
       const next = await api.changedFiles(workspaceId);
       setFiles((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+      actions.setDiffStats(workspaceId, next);
       setDiffTick((t) => t + 1);
     } catch (e) {
       setFiles([]);
