@@ -41,6 +41,30 @@ const NAMES: &[&str] = &[
     "vilnius", "warsaw", "zagreb", "zurich",
 ];
 
+/// A branch-name-friendly slug of a task title: "Fix login bug" -> "fix-login-bug".
+/// `None` for titles too vague to name a branch after (a single word).
+pub fn branch_slug(title: &str) -> Option<String> {
+    let words: Vec<String> = title
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_ascii_lowercase())
+        .collect();
+    if words.len() < 2 {
+        return None;
+    }
+    let mut slug = String::new();
+    for w in words {
+        if !slug.is_empty() && slug.len() + 1 + w.len() > 40 {
+            break;
+        }
+        if !slug.is_empty() {
+            slug.push('-');
+        }
+        slug.push_str(&w);
+    }
+    Some(slug)
+}
+
 /// Pick a city name not used by this repo yet, adding a suffix once all are taken.
 pub fn pick_name(taken: &[String], seed: u64) -> String {
     let start = (seed as usize) % NAMES.len();
@@ -65,6 +89,15 @@ mod tests {
         let taken: Vec<String> = NAMES.iter().map(|s| s.to_string()).collect();
         assert!(pick_name(&taken, 0).ends_with("-2"));
         assert_eq!(pick_name(&[], 0), NAMES[0]);
+    }
+
+    #[test]
+    fn slugs_titles_for_branches() {
+        assert_eq!(branch_slug("Fix login bug").as_deref(), Some("fix-login-bug"));
+        assert_eq!(branch_slug("Add café/dark-mode (v2)!").as_deref(), Some("add-caf-dark-mode-v2"));
+        assert_eq!(branch_slug("Question"), None);
+        let long = branch_slug("Refactor the authentication middleware to support multiple providers").unwrap();
+        assert!(long.len() <= 40 && !long.ends_with('-'), "{long}");
     }
 
     #[test]

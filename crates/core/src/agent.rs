@@ -607,12 +607,60 @@ impl Agents {
         let s = s.clone();
         let text = text.to_string();
         tokio::spawn(async move {
-            let Some(summary) = crate::title::summarize(&text).await else { return };
-            this.set_title(&s, &summary);
+            let summary = crate::title::summarize(&text).await;
+            if let Some(summary) = &summary {
+                this.set_title(&s, summary);
+                if title_workspace {
+                    this.set_workspace_title(&s.workspace_id, summary);
+                }
+            }
             if title_workspace {
-                this.set_workspace_title(&s.workspace_id, &summary);
+                this.name_branch(&s.workspace_id, summary.as_deref().unwrap_or(&quick)).await;
             }
         });
+    }
+
+    /// Rename a workspace's auto-named branch ("runner/tokyo") after its task
+    /// ("runner/fix-login-bug"), as long as it hasn't been pushed.
+    async fn name_branch(&self, workspace_id: &str, title: &str) {
+        // The worktree may still be checking out.
+        let mut waited = 0;
+        let ws = loop {
+            let Ok(ws) = self.store.workspace(workspace_id) else { return };
+            if ws.status != "creating" {
+                break ws;
+            }
+            if waited > 600 {
+                return;
+            }
+            waited += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        };
+        let settings: crate::setup::Settings = self
+            .store
+            .setting("settings")
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let Some(slug) = crate::workspace::branch_slug(title) else { return };
+        let path = std::path::Path::new(&ws.path);
+        if !settings.rename_branches || !ws.branch.ends_with(&ws.name) || crate::git::has_upstream(path).await {
+            return;
+        }
+        let prefix = &ws.branch[..ws.branch.len() - ws.name.len()];
+        let mut branch = format!("{prefix}{slug}");
+        let mut n = 2;
+        while crate::git::branch_exists(path, &branch).await {
+            branch = format!("{prefix}{slug}-{n}");
+            n += 1;
+        }
+        if let Err(e) = crate::git::git(path, &["branch", "-m", &ws.branch, &branch]).await {
+            log::warn!("could not rename branch: {e:#}");
+            return;
+        }
+        let _ = self.store.set_workspace_branch(workspace_id, &branch);
+        self.emitter.emit(Event::WorkspaceBranch { workspace_id: workspace_id.into(), branch });
     }
 
     fn set_workspace_title(&self, workspace_id: &str, title: &str) {

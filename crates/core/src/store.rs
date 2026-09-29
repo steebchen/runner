@@ -271,6 +271,13 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_workspace_branch(&self, id: &str, branch: &str) -> Result<()> {
+        self.conn
+            .lock()
+            .execute("UPDATE workspaces SET branch = ?2 WHERE id = ?1", params![id, branch])?;
+        Ok(())
+    }
+
     pub fn set_workspace_title(&self, id: &str, title: &str) -> Result<()> {
         self.conn
             .lock()

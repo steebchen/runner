@@ -61,6 +61,7 @@ export type Settings = {
   workspacesRoot: string;
   editor: string;
   theme: "system" | "light" | "dark";
+  renameBranches: boolean;
 };
 
 export type AgentStatus = {
@@ -120,6 +121,7 @@ export type CoreEvent =
   | { type: "questionResolved"; sessionId: string; requestId: string }
   | { type: "workspaceStatus"; workspaceId: string; status: string }
   | { type: "workspaceTitle"; workspaceId: string; title: string }
+  | { type: "workspaceBranch"; workspaceId: string; branch: string }
   | { type: "workspacePr"; workspaceId: string; pr: PrStatus | null }
   | { type: "scriptOutput"; workspaceId: string; data: string };
 

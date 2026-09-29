@@ -35,6 +35,8 @@ pub struct Settings {
     pub editor: String,
     /// "system" | "light" | "dark"
     pub theme: String,
+    /// Rename a workspace's branch after its task (until it's pushed).
+    pub rename_branches: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +56,7 @@ impl Default for Settings {
                 .into_owned(),
             editor: "Visual Studio Code".into(),
             theme: "system".into(),
+            rename_branches: true,
         }
     }
 }

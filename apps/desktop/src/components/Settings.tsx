@@ -64,6 +64,12 @@ export function Settings() {
             <Field label="Branch prefix" hint={`New branches are named like ${settings.branchPrefix}tokyo.`}>
               <TextInput value={settings.branchPrefix} onCommit={(v) => actions.saveSettings({ branchPrefix: v })} />
             </Field>
+            <Field
+              label="Name branches after their task"
+              hint={`Once a task has a title, ${settings.branchPrefix}tokyo becomes e.g. ${settings.branchPrefix}fix-login-bug. Branches that were pushed are never renamed.`}
+            >
+              <Toggle checked={settings.renameBranches} onChange={(renameBranches) => actions.saveSettings({ renameBranches })} />
+            </Field>
           </Section>
           <Section title="Appearance & tools">
             <Field label="Theme">

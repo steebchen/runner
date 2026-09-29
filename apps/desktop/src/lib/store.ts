@@ -154,6 +154,10 @@ function handleEvents(events: CoreEvent[]) {
       set({ workspaces: get().workspaces.map((w) => (w.id === e.workspaceId ? { ...w, title: e.title } : w)) });
       continue;
     }
+    if (e.type === "workspaceBranch") {
+      set({ workspaces: get().workspaces.map((w) => (w.id === e.workspaceId ? { ...w, branch: e.branch } : w)) });
+      continue;
+    }
     if (e.type === "workspaceStatus") {
       if (changesTick === s.changesTick) changesTick = { ...changesTick };
       changesTick[e.workspaceId] = (changesTick[e.workspaceId] ?? 0) + 1;

@@ -302,3 +302,50 @@ async fn checkpoints_restore_the_worktree_and_tell_the_agent() {
     assert!(wt.join("agent.txt").exists());
     core.shutdown();
 }
+
+#[tokio::test]
+async fn unpushed_branch_is_named_after_the_task() {
+    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    let tmp = tempfile::tempdir().unwrap();
+    let wt = tmp.path().join("wt");
+    std::fs::create_dir(&wt).unwrap();
+    for args in [&["init", "-q", "-b", "runner/tokyo"][..], &["config", "user.email", "t@t"], &["config", "user.name", "t"], &["commit", "-q", "--allow-empty", "-m", "init"]] {
+        runner_core::git::git(&wt, args).await.unwrap();
+    }
+    let (log, sink) = event_log();
+    let core = Core::new(&tmp.path().join("data"), sink).unwrap();
+    core.agents.register(AgentDef {
+        id: "fake".into(),
+        name: "Fake".into(),
+        command: "node".into(),
+        args: vec![concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.mjs").into()],
+    });
+    let path = wt.display().to_string();
+    core.store.add_repo(&Repo { id: "r".into(), name: "r".into(), path: path.clone(), default_branch: "main".into() }).unwrap();
+    core.store
+        .add_workspace(&Workspace {
+            id: "w".into(),
+            repo_id: "r".into(),
+            name: "tokyo".into(),
+            branch: "runner/tokyo".into(),
+            base_branch: "main".into(),
+            path,
+            status: "ready".into(),
+            created_at: 0,
+            title: String::new(),
+            archived_at: None,
+            unread: false,
+        })
+        .unwrap();
+    let sid = core.create_session("w", "fake", None, None).unwrap().id;
+    core.agents.prompt(&sid, "Fix the login bug".into()).unwrap();
+    let Event::WorkspaceBranch { branch, .. } =
+        wait_for(&log, "branch rename", |e| matches!(e, Event::WorkspaceBranch { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(branch, "runner/fix-the-login-bug");
+    assert_eq!(core.store.workspace("w").unwrap().branch, branch);
+    assert_eq!(runner_core::git::git(&wt, &["branch", "--show-current"]).await.unwrap().trim(), branch);
+    core.shutdown();
+}

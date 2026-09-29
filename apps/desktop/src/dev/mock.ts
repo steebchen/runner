@@ -51,6 +51,7 @@ let settings = {
   workspacesRoot: "/Users/dev/runner/workspaces",
   editor: "Visual Studio Code",
   theme: "system",
+  renameBranches: true,
 };
 const config = [
   { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "bypassPermissions", options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan" }, { value: "bypassPermissions", name: "Bypass permissions" }] },
@@ -214,6 +215,10 @@ const handlers: Record<string, (a: any) => any> = {
       setTimeout(() => {
         ws.title = "Summarized title";
         emit({ type: "workspaceTitle", workspaceId: ws.id, title: ws.title }, { type: "sessionTitle", sessionId: a.sessionId, title: ws.title });
+        if (settings.renameBranches && ws.branch.endsWith(ws.name)) {
+          ws.branch = "runner/summarized-title";
+          emit({ type: "workspaceBranch", workspaceId: ws.id, branch: ws.branch });
+        }
       }, 1500);
     }
     void streamReply(a.sessionId, a.text, a.images);

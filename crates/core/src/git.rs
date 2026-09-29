@@ -232,6 +232,11 @@ pub async fn list_files(wt: &Path) -> Result<Vec<String>> {
     Ok(files)
 }
 
+/// Whether the current branch has an upstream (i.e. it was pushed with -u).
+pub async fn has_upstream(wt: &Path) -> bool {
+    git_ok(wt, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).await
+}
+
 pub async fn has_uncommitted(wt: &Path) -> Result<bool> {
     Ok(!git(wt, &["status", "--porcelain"]).await?.trim().is_empty())
 }
