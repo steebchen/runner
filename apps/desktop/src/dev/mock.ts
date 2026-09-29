@@ -238,6 +238,24 @@ const handlers: Record<string, (a: any) => any> = {
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
   }),
   refresh_prs: () => {},
+  fetch_image: (a) => a.url,
+  pr_details: async () => {
+    await sleep(300);
+    const img = "https://raw.githubusercontent.com/theopenco/llmgateway/019a437c68afa72f1ba04a6f8c7f9bbdb98a2d9d/agents-light.png";
+    const user = { login: "steebchen", avatar_url: "https://avatars.githubusercontent.com/u/6099000?v=4" };
+    return {
+      repo: "acme/web",
+      pull: {
+        number: 42, title: "Add API rate limiting", html_url: "https://github.com/acme/web/pull/42", state: "open", draft: false, merged: false,
+        additions: 46, deletions: 1, changed_files: 2, user, base: { ref: "main" }, head: { ref: "runner/tokyo" },
+        body_html: `<h2>Problem</h2><p>Public endpoints have no rate limiting, so a single client can exhaust the API.</p><h2>Approach</h2><ul><li><strong>Limiter</strong>: token bucket per IP in <code>src/server/limiter.ts</code> (60/min, burst 20)</li><li><strong>Routes</strong>: applied to <code>/api/public</code>, returns <code>429</code> with <code>Retry-After</code></li></ul><ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" checked disabled> Unit tests</li><li class="task-list-item"><input type="checkbox" disabled> Load test in staging</li></ul><h2>Screenshots</h2><p><img src="${img}" alt="agents view"></p><details><summary>Benchmark</summary><pre><code>p50 1.2ms  p99 3.4ms</code></pre></details>`,
+      },
+      comments: [{ id: 1, user: { login: "reviewer-bot", avatar_url: "" }, created_at: new Date(Date.now() - 3600e3).toISOString(), html_url: "https://github.com/acme/web/pull/42#issuecomment-1", body_html: "<p>Bundle size unchanged ✅</p>" }],
+      reviews: [{ id: 10, user, state: "CHANGES_REQUESTED", submitted_at: new Date(Date.now() - 1800e3).toISOString(), html_url: "https://github.com/acme/web/pull/42#pullrequestreview-10", body_html: "<p>Looks good overall, one concern about memory growth.</p>" }],
+      reviewComments: [{ id: 100, pull_request_review_id: 10, path: "src/server/limiter.ts", line: 7, diff_hunk: "@@ -1,3 +1,14 @@\n+export function rateLimit(opts) {\n+  const buckets = new Map<string, number>();", body_html: "<p>This map never shrinks. Evict idle keys?</p>" }],
+      checks: [{ name: "ci", workflowName: "CI", conclusion: "FAILURE", detailsUrl: "https://github.com" }, { name: "lint", workflowName: "CI", conclusion: "SUCCESS", detailsUrl: "https://github.com" }],
+    };
+  },
   usage: () => usageRows(),
   get_pricing: () => pricing,
   save_pricing: (a) => void (pricing = a.pricing),

@@ -183,6 +183,8 @@ export const api = {
   refreshPrs: () => invoke<void>("refresh_prs"),
   renameWorkspace: (workspaceId: string, title: string) => invoke<void>("rename_workspace", { workspaceId, title }),
   setWorkspaceUnread: (workspaceId: string, unread: boolean) => invoke<void>("set_workspace_unread", { workspaceId, unread }),
+  prDetails: (workspaceId: string) => invoke<any>("pr_details", { workspaceId }),
+  fetchImage: (url: string) => invoke<string>("fetch_image", { url }),
   mergePr: (workspaceId: string) => invoke<void>("merge_pr", { workspaceId }),
   terminalOpen: (
     workspaceId: string,

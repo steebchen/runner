@@ -176,3 +176,32 @@ button {
 .xterm .xterm-viewport {
   background-color: var(--bg) !important;
 }
+
+/* GitHub-rendered PR descriptions and comments */
+.md img,
+.md video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.md details {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4em 0.8em;
+  margin: 0.6em 0;
+}
+.md summary {
+  cursor: default;
+  font-weight: 500;
+}
+.md input[type="checkbox"] {
+  margin-right: 0.4em;
+}
+.md li.task-list-item {
+  list-style: none;
+  margin-left: -1.2em;
+}
+.md .anchor,
+.md .octicon {
+  display: none;
+}

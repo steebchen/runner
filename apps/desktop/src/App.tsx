@@ -5,6 +5,7 @@ import { FolderPlus } from "lucide-react";
 import { actions, startBadgeSync, toast, useStore } from "./lib/store";
 import { CommandPalette } from "./components/CommandPalette";
 import { AddRepoMenu } from "./components/AddRepoMenu";
+import { PR_TAB } from "./components/PrView";
 import { api } from "./lib/api";
 import { Sidebar } from "./components/Sidebar";
 import { WorkspaceView } from "./components/WorkspaceView";
@@ -40,7 +41,7 @@ function runCommand(id: string, setPalette: (open: boolean | ((o: boolean) => bo
     }
     case "close-chat": {
       const sid = ws && s.selectedSession[ws.id];
-      if (ws && sid && s.page === "workspace") void actions.closeSession(ws.id, sid);
+      if (ws && sid && sid !== PR_TAB && s.page === "workspace") void actions.closeSession(ws.id, sid);
       return;
     }
   }

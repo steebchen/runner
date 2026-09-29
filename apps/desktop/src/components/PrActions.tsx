@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
+import { ArrowUpRight, Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
+import { PR_TAB } from "./PrView";
 import { api, type Workspace } from "../lib/api";
 import { checkSummary, prAppearance } from "../lib/pr";
 import { actions, toast, useStore } from "../lib/store";
@@ -62,10 +63,19 @@ export function PrActions({ workspace, sessionId }: { workspace: Workspace; sess
   const { passed, failed, pending } = checkSummary(pr);
   return (
     <div className="flex items-center gap-1.5 text-xs">
-      <button onClick={() => openUrl(pr.url)} className="flex items-center gap-1 rounded px-1.5 py-1 hover:bg-hover" title={pr.title}>
-        <GitPullRequest size={12} className={prAppearance(pr).color} />#{pr.number}
-        <span className={clsx("text-[11px]", prAppearance(pr).color)}>{prAppearance(pr).label}</span>
-      </button>
+      <span className="flex items-center overflow-hidden rounded-md border border-border">
+        <button
+          onClick={() => actions.selectSession(workspace.id, PR_TAB)}
+          className="flex items-center gap-1 px-1.5 py-1 hover:bg-hover"
+          title={`${pr.title} — open here`}
+        >
+          <GitPullRequest size={12} className={prAppearance(pr).color} />#{pr.number}
+          <span className={clsx("text-[11px]", prAppearance(pr).color)}>{prAppearance(pr).label}</span>
+        </button>
+        <button onClick={() => openUrl(pr.url)} className="border-l border-border px-1 py-1 text-muted hover:bg-hover hover:text-fg" title="Open on GitHub">
+          <ArrowUpRight size={12} />
+        </button>
+      </span>
       {pr.state === "OPEN" && (passed + failed.length + pending > 0) && (
         <span className="flex items-center gap-1.5 text-muted" title={failed.length ? `Failing: ${failed.join(", ")}` : undefined}>
           {passed > 0 && (

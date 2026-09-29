@@ -40,8 +40,21 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+/// Replies that are commentary rather than a title.
+fn looks_like_commentary(line: &str) -> bool {
+    let l = line.to_lowercase();
+    ["this isn't", "this is not", "i can't", "i cannot", "i'm ", "i am ", "sorry", "not a coding", "as an ai", "here is", "here's"]
+        .iter()
+        .any(|p| l.starts_with(p) || l.contains("coding task"))
+        || line.split_whitespace().count() > 6
+        || line.contains('—')
+}
+
 fn clean(summary: &str) -> Option<String> {
     let line = summary.lines().map(str::trim).find(|l| !l.is_empty())?;
+    if looks_like_commentary(line) {
+        return None;
+    }
     let line = line.trim_matches(|c: char| c == '"' || c == '\'' || c == '`' || c == '*' || c == '.');
     let line = line.strip_prefix("Title:").unwrap_or(line).trim();
     let words: Vec<&str> = line.split_whitespace().take(6).collect();
@@ -57,7 +70,11 @@ pub async fn summarize(text: &str) -> Option<String> {
     }
     let excerpt: String = text.chars().take(2000).collect();
     let prompt = format!(
-        "Summarize this coding task as a 2-4 word title in imperative form (like \"Add dark mode\" or \"Fix login bug\"). No punctuation. Reply with the title only.\n\nTask:\n{excerpt}"
+        "Write a 2-4 word title for this message, for a sidebar list of tasks.\n\
+         - A coding task: imperative form, like \"Add dark mode\" or \"Fix login bug\".\n\
+         - A question or anything else: name its topic, like \"Question about billing\" or \"Explain auth flow\".\n\
+         - If there's nothing to summarize: \"Question\".\n\
+         Never comment on or refuse the message. No punctuation. Reply with the title only.\n\nMessage:\n{excerpt}"
     );
     let mut child = tokio_command("claude")
         .args([
@@ -105,5 +122,8 @@ mod tests {
         assert_eq!(clean("\"Add API rate limiting.\"\n").as_deref(), Some("Add API rate limiting"));
         assert_eq!(clean("Title: fix flaky test").as_deref(), Some("Fix flaky test"));
         assert_eq!(clean("   "), None);
+        assert_eq!(clean("This isn't a coding task — it's a question"), None);
+        assert_eq!(clean("Sorry, I can't title that"), None);
+        assert_eq!(clean("Question about billing").as_deref(), Some("Question about billing"));
     }
 }

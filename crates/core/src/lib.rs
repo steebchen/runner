@@ -528,6 +528,11 @@ impl Core {
         Ok(())
     }
 
+    pub async fn pr_details(&self, workspace_id: &str) -> Result<Value> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        forge::pr_details(&path, &ws.branch).await
+    }
+
     pub async fn merge_pr(&self, workspace_id: &str) -> Result<()> {
         let (ws, path) = self.ws_path(workspace_id)?;
         forge::merge_pr(&path, &ws.branch).await?;

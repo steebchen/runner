@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { Archive, ExternalLink, GitBranch, Loader2, PanelRight, Plus, X } from "lucide-react";
+import { Archive, ExternalLink, GitBranch, GitPullRequest, Loader2, PanelRight, Plus, X } from "lucide-react";
 import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, enabledAgents, toast, useStore } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
 import { AgentIcon, effortName, findModel, modelName } from "../lib/models";
+import { PR_TAB, PrView } from "./PrView";
+import { prAppearance } from "../lib/pr";
 import { api, type LoadoutEntry, type Session } from "../lib/api";
 import { Chat } from "./Chat";
 import { ChangesPanel } from "./ChangesPanel";
@@ -18,6 +20,13 @@ type Tab = "changes" | "terminal" | "setup";
 export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   const ws = useStore((s) => s.workspaces.find((w) => w.id === workspaceId));
   const sessionId = useStore((s) => s.selectedSession[workspaceId]);
+  // The chat to target from the header (e.g. "Fix checks") even while the PR tab is open.
+  const chatId = useStore((s) => {
+    const sel = s.selectedSession[workspaceId];
+    if (sel && sel !== PR_TAB) return sel;
+    const list = s.sessions[workspaceId] ?? [];
+    return list[list.length - 1]?.id;
+  });
   const hasSetupLog = useStore((s) => !!s.scriptLog[workspaceId]);
   const failed = useStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.status === "failed");
   const editor = useStore((s) => s.settings?.editor);
@@ -46,7 +55,7 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
           </span>
         </div>
         <div className="flex-1" data-tauri-drag-region />
-        {ws.status !== "creating" && ws.status !== "failed" && <PrActions workspace={ws} sessionId={sessionId} />}
+        {ws.status !== "creating" && ws.status !== "failed" && <PrActions workspace={ws} sessionId={chatId} />}
         <Menu
           label={
             <span className="flex items-center gap-1">
@@ -78,7 +87,9 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
       <div className="flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
           <SessionTabs workspaceId={ws.id} activeId={sessionId} />
-          {sessionId ? (
+          {sessionId === PR_TAB ? (
+            <PrView workspaceId={ws.id} />
+          ) : sessionId ? (
             <Chat key={sessionId} sessionId={sessionId} workspaceId={ws.id} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-muted">Start a chat with an agent using +</div>
@@ -137,8 +148,20 @@ function SessionTabs({ workspaceId, activeId }: { workspaceId: string; activeId?
   const loadout = useStore((s) => s.settings?.loadout) ?? NO_LOADOUT;
   const catalogs = useStore((s) => s.catalogs);
   const featured = loadout.filter((l) => menuAgents.some((a) => a.id === l.agent));
+  const pr = useStore((s) => s.prs[workspaceId]);
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-border px-2">
+      {pr && (
+        <button
+          onClick={() => actions.selectSession(workspaceId, PR_TAB)}
+          className={clsx(
+            "flex shrink-0 items-center gap-1.5 rounded px-2 py-1 text-xs",
+            activeId === PR_TAB ? "bg-hover font-medium text-fg" : "text-muted hover:text-fg",
+          )}
+        >
+          <GitPullRequest size={12} className={prAppearance(pr).color} /> PR #{pr.number}
+        </button>
+      )}
       {sessions.map((x) => (
         <SessionTab
           key={x.id}

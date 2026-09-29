@@ -267,6 +267,16 @@ async fn refresh_catalog(app: State<'_, App>, agent_id: String) -> Res<Value> {
 }
 
 #[tauri::command]
+async fn pr_details(app: State<'_, App>, workspace_id: String) -> Res<Value> {
+    app.core.pr_details(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
+async fn fetch_image(url: String) -> Res<String> {
+    runner_core::forge::fetch_image(&url).await.map_err(err)
+}
+
+#[tauri::command]
 fn cached_prs(app: State<'_, App>) -> std::collections::HashMap<String, Value> {
     app.core.cached_prs()
 }
@@ -470,6 +480,8 @@ pub fn run() {
             create_pr,
             merge_pr,
             cached_prs,
+            pr_details,
+            fetch_image,
             model_catalogs,
             usage,
             get_pricing,
