@@ -311,6 +311,36 @@ pub async fn has_upstream(wt: &Path) -> bool {
     git_ok(wt, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).await
 }
 
+fn clip(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n… (truncated)", &text[..end])
+}
+
+/// What's uncommitted, for writing a commit message: stat, new files and a
+/// (truncated) diff.
+pub async fn uncommitted_summary(wt: &Path) -> Result<String> {
+    let stat = git(wt, &["diff", "HEAD", "--stat"]).await?;
+    let untracked = git(wt, &["ls-files", "--others", "--exclude-standard"]).await?;
+    let diff = git(wt, &["diff", "HEAD"]).await?;
+    Ok(format!("Changed files:\n{stat}\nNew files:\n{untracked}\nDiff:\n{}", clip(&diff, 30_000)))
+}
+
+/// Everything on the branch since it forked from base, for writing a PR
+/// description: commit subjects, stat and a (truncated) diff.
+pub async fn branch_summary(wt: &Path, base_branch: &str) -> Result<String> {
+    let mb = merge_base(wt, base_branch).await?;
+    let log = git(wt, &["log", "--format=- %s", &format!("{mb}..HEAD")]).await?;
+    let stat = git(wt, &["diff", &mb, "--stat"]).await?;
+    let diff = git(wt, &["diff", &mb]).await?;
+    Ok(format!("Commits:\n{log}\nChanged files:\n{stat}\nDiff:\n{}", clip(&diff, 40_000)))
+}
+
 pub async fn has_uncommitted(wt: &Path) -> Result<bool> {
     Ok(!git(wt, &["status", "--porcelain"]).await?.trim().is_empty())
 }

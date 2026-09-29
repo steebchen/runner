@@ -291,6 +291,16 @@ async fn commit_all(app: State<'_, App>, workspace_id: String, message: String) 
 }
 
 #[tauri::command]
+async fn commit_and_push(app: State<'_, App>, workspace_id: String) -> Res<()> {
+    app.core.commit_and_push(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
+async fn draft_pr(app: State<'_, App>, workspace_id: String) -> Res<(String, String)> {
+    app.core.draft_pr(&workspace_id).await.map_err(err)
+}
+
+#[tauri::command]
 async fn push(app: State<'_, App>, workspace_id: String) -> Res<()> {
     app.core.push(&workspace_id).await.map_err(err)
 }
@@ -556,6 +566,8 @@ pub fn run() {
             revert_file,
             commit_all,
             push,
+            commit_and_push,
+            draft_pr,
             pr_status,
             create_pr,
             merge_pr,

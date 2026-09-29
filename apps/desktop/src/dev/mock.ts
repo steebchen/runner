@@ -265,6 +265,11 @@ const handlers: Record<string, (a: any) => any> = {
     emit({ type: "permissionResolved", sessionId: a.sessionId, requestId: a.requestId }, { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null });
   },
   cancel_prompt: () => {},
+  commit_and_push: async () => sleep(800),
+  draft_pr: async () => {
+    await sleep(1200);
+    return ["Add rate limiting to the public API", "Public endpoints now go through a token bucket limiter, so a single client can't exhaust the API.\n\n- `rateLimit()` middleware with per-IP buckets\n- 60 requests/minute, bursts of 20\n- Tests for the limiter"];
+  },
   sync_status: (a) => mergeState[a.workspaceId] ?? { ahead: 3, behind: 2, merging: false, conflicts: [] },
   merge_base_branch: async (a) => {
     await sleep(600);
@@ -295,7 +300,9 @@ const handlers: Record<string, (a: any) => any> = {
     w1: { number: 42, url: "https://github.com/acme/web/pull/42", state: "OPEN", title: "Add API rate limiting", isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", statusCheckRollup: [{ name: "ci", conclusion: "FAILURE" }, { name: "lint", conclusion: "SUCCESS" }] },
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
   }),
-  refresh_prs: () => {},
+  refresh_prs: () => {
+    for (const w of workspaces) if (w.id !== "w1" && w.id !== "w2") emit({ type: "workspacePr", workspaceId: w.id, pr: null });
+  },
   fetch_image: (a) => a.url,
   pr_details: async () => {
     await sleep(300);

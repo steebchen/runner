@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Archive, ArrowUpRight, Check, GitMerge, GitPullRequest, Loader2, Upload, Wrench, X } from "lucide-react";
+import { Archive, ArrowUpRight, Check, GitMerge, GitPullRequest, Loader2, Sparkles, Upload, Wrench, X } from "lucide-react";
 import { PR_TAB } from "./PrView";
 import { api, type Workspace } from "../lib/api";
 import { checkSummary, prAppearance } from "../lib/pr";
@@ -123,9 +123,9 @@ export function PrActions({ workspace, sessionId }: { workspace: Workspace; sess
       {pr.state === "OPEN" && (
         <>
           <button
-            onClick={() => run(() => api.commitAll(workspace.id, "Update").catch(() => {}).then(() => api.push(workspace.id)), "Pushed")}
+            onClick={() => run(() => api.commitAndPush(workspace.id), "Pushed")}
             disabled={busy}
-            title="Commit pending changes and push"
+            title="Commit pending changes (with a written message) and push"
             className="flex items-center gap-1 rounded px-1.5 py-1 text-muted hover:bg-hover hover:text-fg"
           >
             <Upload size={12} /> Push
@@ -158,6 +158,19 @@ function CreatePrDialog({
   const sessionTitle = useStore((s) => (s.sessions[workspace.id] ?? []).find((x) => x.title)?.title ?? "");
   const [title, setTitle] = useState(sessionTitle);
   const [body, setBody] = useState("");
+  const [writing, setWriting] = useState(false);
+  const write = async () => {
+    setWriting(true);
+    try {
+      const [t, b] = await api.draftPr(workspace.id);
+      setTitle(t);
+      setBody(b);
+    } catch (e) {
+      toast(String(e));
+    } finally {
+      setWriting(false);
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-32" onMouseDown={onClose}>
       <div className="w-[520px] rounded-xl border border-border bg-elevated p-4 shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
@@ -180,11 +193,19 @@ function CreatePrDialog({
         />
         <div className="mt-1 text-xs text-muted">Uncommitted changes are committed with the title as message, then pushed.</div>
         <div className="mt-3 flex justify-end gap-2">
+          <button
+            onClick={() => void write()}
+            disabled={writing}
+            title="Write the title and description from the branch's changes (uses Claude Haiku with your Claude login)"
+            className="mr-auto flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 hover:bg-hover disabled:opacity-60"
+          >
+            {writing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} {writing ? "Writing…" : "Write with AI"}
+          </button>
           <button onClick={onClose} className="rounded-md px-3 py-1.5 hover:bg-hover">
             Cancel
           </button>
           <button
-            disabled={!title.trim()}
+            disabled={!title.trim() || writing}
             onClick={() => onSubmit(title.trim(), body)}
             className="rounded-md bg-accent px-3 py-1.5 font-medium text-accent-fg disabled:opacity-50"
           >

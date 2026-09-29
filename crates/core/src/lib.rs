@@ -704,6 +704,35 @@ impl Core {
         Ok(url)
     }
 
+    /// Commit pending changes with a written message (falling back to the
+    /// workspace title), then push.
+    pub async fn commit_and_push(&self, workspace_id: &str) -> Result<()> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        if git::has_uncommitted(&path).await? {
+            let summary = git::uncommitted_summary(&path).await?;
+            let message = match title::commit_message(&summary).await {
+                Some(m) => m,
+                None if !ws.title.is_empty() => ws.title.clone(),
+                None => "Update".into(),
+            };
+            git::commit_all(&path, &message).await?;
+        }
+        self.push(workspace_id).await
+    }
+
+    /// A PR title and description for the workspace's changes, written by
+    /// Claude Haiku with the user's login.
+    pub async fn draft_pr(&self, workspace_id: &str) -> Result<(String, String)> {
+        let (ws, path) = self.ws_path(workspace_id)?;
+        let mut summary = git::branch_summary(&path, &ws.base_branch).await?;
+        if git::has_uncommitted(&path).await? {
+            summary = format!("{summary}\n\nNot committed yet:\n{}", git::uncommitted_summary(&path).await?);
+        }
+        title::pr_text(&summary)
+            .await
+            .ok_or_else(|| anyhow!("couldn't write a description (this uses Claude Code; is it installed and signed in?)"))
+    }
+
     pub async fn push(&self, workspace_id: &str) -> Result<()> {
         let (ws, path) = self.ws_path(workspace_id)?;
         git::push(&path, &ws.branch).await?;

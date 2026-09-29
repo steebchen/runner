@@ -1,6 +1,7 @@
-//! Short titles for sessions and workspaces ("Add rate limiting"). A heuristic
-//! title is shown instantly; a Haiku summary via the user's Claude login
-//! replaces it a few seconds later when available.
+//! Short texts written for the user: titles for sessions and workspaces ("Add
+//! rate limiting"), commit messages and PR descriptions. A heuristic title is
+//! shown instantly; a Haiku summary via the user's Claude login replaces it a
+//! few seconds later when available.
 
 use std::process::Stdio;
 use std::time::Duration;
@@ -76,6 +77,13 @@ pub async fn summarize(text: &str) -> Option<String> {
          - If there's nothing to summarize: \"Question\".\n\
          Never comment on or refuse the message. No punctuation. Reply with the title only.\n\nMessage:\n{excerpt}"
     );
+    clean(&ask_haiku(&prompt, Duration::from_secs(25)).await?)
+}
+
+/// Run a one-off prompt through Claude Haiku with the user's Claude login,
+/// with no tools, settings or session history. `None` if Claude isn't
+/// installed, isn't signed in, fails or takes longer than `timeout`.
+pub async fn ask_haiku(prompt: &str, timeout: Duration) -> Option<String> {
     let mut child = tokio_command("claude")
         .args([
             "-p",
@@ -98,11 +106,54 @@ pub async fn summarize(text: &str) -> Option<String> {
     let mut stdin = child.stdin.take()?;
     stdin.write_all(prompt.as_bytes()).await.ok()?;
     drop(stdin);
-    let out = tokio::time::timeout(Duration::from_secs(25), child.wait_with_output()).await.ok()?.ok()?;
+    let out = tokio::time::timeout(timeout, child.wait_with_output()).await.ok()?.ok()?;
     if !out.status.success() {
         return None;
     }
-    clean(&String::from_utf8_lossy(&out.stdout))
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Drop a surrounding code fence, if the model wrapped its answer in one.
+fn unfence(text: &str) -> &str {
+    let t = text.trim();
+    match t.strip_prefix("```") {
+        Some(rest) => rest.split_once('\n').map(|(_, r)| r).unwrap_or(rest).trim_end().trim_end_matches("```").trim(),
+        None => t,
+    }
+}
+
+/// A commit message for uncommitted changes (`context` = stat + diff).
+pub async fn commit_message(context: &str) -> Option<String> {
+    let prompt = format!(
+        "Write a git commit message for the changes below. First line: a concise summary in the imperative mood, \
+         at most 72 characters, no trailing period. Add a blank line and a short body only if the change needs \
+         explaining. Reply with the commit message only.\n\n{context}"
+    );
+    let reply = ask_haiku(&prompt, Duration::from_secs(45)).await?;
+    let msg = unfence(&reply).trim();
+    (!msg.is_empty()).then(|| msg.to_string())
+}
+
+/// A pull request title and Markdown description for a branch's changes.
+pub async fn pr_text(context: &str) -> Option<(String, String)> {
+    let prompt = format!(
+        "Write a GitHub pull request title and description for the branch below. Reply with the title on the \
+         first line (imperative mood, under 70 characters, no prefix), then a blank line, then the description \
+         in Markdown: one or two sentences on what changed and why, then a short bullet list of the notable \
+         changes. No headings, no preamble.\n\n{context}"
+    );
+    parse_pr_text(&ask_haiku(&prompt, Duration::from_secs(60)).await?)
+}
+
+fn parse_pr_text(reply: &str) -> Option<(String, String)> {
+    let text = unfence(reply);
+    let (first, rest) = text.split_once('\n').unwrap_or((text, ""));
+    let title = first.trim().trim_start_matches('#').trim();
+    let title = title.strip_prefix("Title:").unwrap_or(title).trim().trim_matches('*').trim();
+    let body = rest.trim();
+    let body = body.strip_prefix("Description:").unwrap_or(body).trim();
+    (!title.is_empty()).then(|| (title.to_string(), body.to_string()))
 }
 
 #[cfg(test)]
@@ -115,6 +166,15 @@ mod tests {
         assert_eq!(quick_title("add dark mode support to the settings page"), "Add dark mode support");
         assert_eq!(quick_title("\n\nfix the bug."), "Fix the bug");
         assert_eq!(quick_title(""), "");
+    }
+
+    #[test]
+    fn parses_pr_text() {
+        let (t, b) = parse_pr_text("```\nTitle: Add rate limiting\n\nAdds a limiter.\n\n- one\n```").unwrap();
+        assert_eq!(t, "Add rate limiting");
+        assert_eq!(b, "Adds a limiter.\n\n- one");
+        assert_eq!(parse_pr_text("# Fix bug").unwrap(), ("Fix bug".into(), String::new()));
+        assert_eq!(unfence("```text\nFix it\n```"), "Fix it");
     }
 
     #[test]
