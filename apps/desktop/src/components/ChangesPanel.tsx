@@ -1,12 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { MessageSquarePlus, RefreshCw, Undo2, X } from "lucide-react";
+import { Check, ExternalLink, MessageSquarePlus, RefreshCw, Undo2, X } from "lucide-react";
 import { api, type ChangedFile } from "../lib/api";
 import { actions, toast, useStore } from "../lib/store";
 import { parseUnifiedDiff, type DiffLine } from "../lib/diff";
 
 type Comment = { path: string; line: number; text: string };
+
+/** Fingerprint of a file's change, so "viewed" resets when it changes again. */
+const fingerprint = (f: ChangedFile) => `${f.status}:${f.additions}:${f.deletions}`;
+
+/** Files marked as viewed, per workspace (a per-device review aid). */
+function useViewed(workspaceId: string) {
+  const key = `runner.viewed.${workspaceId}`;
+  const [viewed, setViewed] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const toggle = (f: ChangedFile) => {
+    setViewed((v) => {
+      const next = { ...v };
+      if (next[f.path] === fingerprint(f)) delete next[f.path];
+      else next[f.path] = fingerprint(f);
+      localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    });
+  };
+  return { isViewed: (f: ChangedFile) => viewed[f.path] === fingerprint(f), toggle };
+}
 
 export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; sessionId?: string }) {
   const tick = useStore((s) => s.changesTick[workspaceId] ?? 0);
@@ -14,6 +39,10 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
   const [selected, setSelected] = useState<string | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [diffTick, setDiffTick] = useState(0);
+  const { isViewed, toggle } = useViewed(workspaceId);
+  const wsPath = useStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.path);
+  const editor = useStore((s) => s.settings?.editor);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,8 +78,17 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
     setComments([]);
   };
 
+  const move = (dir: number) => {
+    if (!files?.length) return;
+    const i = files.findIndex((f) => f.path === selected);
+    const next = files[Math.max(0, Math.min(files.length - 1, i + dir))];
+    setSelected(next.path);
+    listRef.current?.querySelector(`[data-path="${CSS.escape(next.path)}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+
   if (!files) return <div className="p-4 text-muted">Loading…</div>;
   if (!files.length) return <div className="p-4 text-muted">No changes yet.</div>;
+  const viewedCount = files.filter(isViewed).length;
 
   return (
     <div className="flex h-full flex-col">
@@ -59,17 +97,41 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
           {files.length} file{files.length === 1 ? "" : "s"} · <span className="text-add-fg">+{totals.add}</span>{" "}
           <span className="text-del-fg">−{totals.del}</span>
         </span>
+        {viewedCount > 0 && (
+          <span className="text-faint">
+            · {viewedCount}/{files.length} viewed
+          </span>
+        )}
         <div className="flex-1" />
         <button onClick={refresh} title="Refresh" className="rounded p-1 hover:bg-hover hover:text-fg">
           <RefreshCw size={12} />
         </button>
       </div>
-      <div className="max-h-[35%] shrink-0 overflow-y-auto border-b border-border py-1">
+      <div
+        ref={listRef}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" || e.key === "j") move(1);
+          else if (e.key === "ArrowUp" || e.key === "k") move(-1);
+          else if (e.key === "v" || e.key === " ") {
+            const f = files.find((x) => x.path === selected);
+            if (f) toggle(f);
+          } else return;
+          e.preventDefault();
+        }}
+        className="max-h-[35%] shrink-0 overflow-y-auto border-b border-border py-1 outline-none"
+        title="↑/↓ to move, V to mark as viewed"
+      >
         {files.map((f) => (
-          <button
+          <div
             key={f.path}
+            data-path={f.path}
             onClick={() => setSelected(f.path)}
-            className={clsx("flex w-full items-center gap-2 px-3 py-[3px] text-left text-xs", selected === f.path ? "bg-hover" : "hover:bg-hover/60")}
+            className={clsx(
+              "group flex w-full cursor-default items-center gap-2 px-3 py-[3px] text-left text-xs",
+              selected === f.path ? "bg-hover" : "hover:bg-hover/60",
+              isViewed(f) && "opacity-55",
+            )}
           >
             <span
               className={clsx(
@@ -91,7 +153,20 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
                 <span className="text-faint">bin</span>
               )}
             </span>
-          </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle(f);
+              }}
+              title={isViewed(f) ? "Viewed (V)" : "Mark as viewed (V)"}
+              className={clsx(
+                "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border",
+                isViewed(f) ? "border-accent bg-accent text-accent-fg" : "border-border text-transparent group-hover:border-muted",
+              )}
+            >
+              <Check size={9} strokeWidth={3} />
+            </button>
+          </div>
         ))}
       </div>
       {comments.length > 0 && (
@@ -119,6 +194,9 @@ export function ChangesPanel({ workspaceId, sessionId }: { workspaceId: string; 
           path={selected}
           tick={diffTick}
           onComment={(line, text) => setComments((c) => [...c, { path: selected, line, text }])}
+          onOpen={
+            wsPath && selected ? () => void api.openPath(`${wsPath}/${selected}`, editor || undefined).catch((e) => toast(String(e))) : undefined
+          }
           onRevert={async () => {
             await api.revertFile(workspaceId, selected).catch((e) => toast(String(e)));
             void refresh();
@@ -137,12 +215,14 @@ function FileDiff({
   tick,
   onComment,
   onRevert,
+  onOpen,
 }: {
   workspaceId: string;
   path: string;
   tick: number;
   onComment: (line: number, text: string) => void;
   onRevert: () => void;
+  onOpen?: () => void;
 }) {
   const [patch, setPatch] = useState<string | null>(null);
   const [commentAt, setCommentAt] = useState<number | null>(null);
@@ -179,6 +259,11 @@ function FileDiff({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px]">{path}</span>
+        {onOpen && (
+          <button onClick={onOpen} title="Open in editor" className="flex items-center gap-1 rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg">
+            <ExternalLink size={12} /> Open
+          </button>
+        )}
         <button onClick={onRevert} title="Discard changes to this file" className="flex items-center gap-1 rounded px-1.5 py-0.5 text-muted hover:bg-hover hover:text-fg">
           <Undo2 size={12} /> Discard
         </button>

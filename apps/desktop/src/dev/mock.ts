@@ -348,8 +348,6 @@ const handlers: Record<string, (a: any) => any> = {
   terminal_write: () => {},
   terminal_resize: () => {},
   terminal_kill: () => {},
-  "plugin:event|listen": () => nextCb++,
-  "plugin:event|unlisten": () => {},
   "plugin:window|set_badge_count": () => {},
 };
 
