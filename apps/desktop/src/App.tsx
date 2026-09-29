@@ -14,6 +14,7 @@ import { AgentSetup, Settings } from "./components/Settings";
 import { Home } from "./components/Home";
 import { Insights } from "./components/Insights";
 import { NewWorkspaceDialog } from "./components/NewWorkspaceDialog";
+import { Shortcuts } from "./components/Shortcuts";
 
 export async function pickRepo() {
   const path = await open({ directory: true, title: "Choose a git repository" });
@@ -21,7 +22,9 @@ export async function pickRepo() {
 }
 
 /** Handle a command from the native menu or a keyboard shortcut. */
-function runCommand(id: string, setPalette: (open: boolean | ((o: boolean) => boolean)) => void) {
+type Toggle = (open: boolean | ((o: boolean) => boolean)) => void;
+
+function runCommand(id: string, setPalette: Toggle, setShortcuts?: Toggle) {
   const s = useStore.getState();
   const ws = s.workspaces.find((w) => w.id === s.selectedWorkspace);
   switch (id) {
@@ -29,6 +32,8 @@ function runCommand(id: string, setPalette: (open: boolean | ((o: boolean) => bo
       return actions.openSettings(true);
     case "palette":
       return setPalette((o) => !o);
+    case "shortcuts":
+      return setShortcuts?.((o) => !o);
     case "new-workspace": {
       const repoId = ws?.repoId ?? s.repos[0]?.id;
       if (repoId) void actions.createWorkspace(repoId);
@@ -70,6 +75,7 @@ export function App() {
   const hasRepos = useStore((s) => s.repos.length > 0);
   const page = useStore((s) => s.page);
   const [palette, setPalette] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
   const newFromRepo = useStore((s) => s.newFromRepo);
 
   useEffect(() => {
@@ -77,7 +83,7 @@ export function App() {
     startBadgeSync();
     // Native menu items (Settings…, New Chat, Close Chat, …).
     let unlisten: (() => void) | undefined;
-    listen<string>("menu", (e) => runCommand(e.payload, setPalette))
+    listen<string>("menu", (e) => runCommand(e.payload, setPalette, setShortcuts))
       .then((u) => (unlisten = u))
       .catch(() => {});
     return () => unlisten?.();
@@ -87,10 +93,10 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey) return;
       const s = useStore.getState();
-      const shortcut: Record<string, string> = { ",": "settings", k: "palette", t: "new-chat", w: "close-chat" };
+      const shortcut: Record<string, string> = { ",": "settings", k: "palette", t: "new-chat", w: "close-chat", "/": "shortcuts" };
       if (!e.shiftKey && shortcut[e.key]) {
         e.preventDefault();
-        runCommand(shortcut[e.key], setPalette);
+        runCommand(shortcut[e.key], setPalette, setShortcuts);
       } else if (e.shiftKey && (e.key === "[" || e.key === "]" || e.key === "{" || e.key === "}")) {
         e.preventDefault();
         cycleChat(e.key === "[" || e.key === "{" ? -1 : 1);
@@ -163,7 +169,8 @@ export function App() {
         )}
       </main>
       <Toast />
-      {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {palette && <CommandPalette onClose={() => setPalette(false)} onShortcuts={() => setShortcuts(true)} />}
+      {shortcuts && <Shortcuts onClose={() => setShortcuts(false)} />}
       {newFromRepo && <NewWorkspaceDialog repoId={newFromRepo} onClose={() => actions.openNewFrom(null)} />}
     </div>
   );

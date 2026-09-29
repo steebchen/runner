@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
-import { ArrowRight, ChartColumn, FolderPlus, GitBranch, House, ListChecks, Plus, Search, Settings as SettingsIcon } from "lucide-react";
+import { ArrowRight, ChartColumn, FolderPlus, GitBranch, House, Keyboard, ListChecks, Plus, Search, Settings as SettingsIcon } from "lucide-react";
 import { actions, useStore } from "../lib/store";
 import { AgentIcon, effortName, findModel, modelName } from "../lib/models";
 import { pickRepo } from "../App";
@@ -20,7 +20,7 @@ function score(label: string, q: string) {
 }
 
 /** ⌘K: jump to a workspace or run an action by typing. */
-export function CommandPalette({ onClose }: { onClose: () => void }) {
+export function CommandPalette({ onClose, onShortcuts }: { onClose: () => void; onShortcuts: () => void }) {
   // Snapshot on open: the palette is short-lived and shouldn't re-render on
   // every streamed token.
   const [s] = useState(() => useStore.getState());
@@ -88,6 +88,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       { id: "home", label: "Home: all workspaces", icon: <House size={13} />, group: "Go to", run: () => actions.openHome() },
       { id: "insights", label: "Insights: cost and usage", icon: <ChartColumn size={13} />, group: "Go to", run: () => actions.openInsights() },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <SettingsIcon size={13} />, group: "Go to", run: () => actions.openSettings(true) },
+      { id: "shortcuts", label: "Keyboard shortcuts", hint: "⌘/", icon: <Keyboard size={13} />, group: "Go to", run: onShortcuts },
       { id: "add-repo", label: "Add repository…", hint: "⇧⌘O", icon: <FolderPlus size={13} />, group: "Actions", run: () => void pickRepo() },
     );
     for (const r of s.recents) {
@@ -101,7 +102,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       });
     }
     return out;
-  }, [s]);
+  }, [s, onShortcuts]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -481,6 +481,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
             sub.append(&item("new-chat", "New Chat", "CmdOrCtrl+T")?)?;
             sub.append(&PredefinedMenuItem::separator(handle)?)?;
             sub.append(&item("palette", "Command Palette…", "CmdOrCtrl+K")?)?;
+            sub.append(&item("shortcuts", "Keyboard Shortcuts", "CmdOrCtrl+/")?)?;
             sub.append(&PredefinedMenuItem::separator(handle)?)?;
             sub.append(&item("close-chat", "Close Chat", "CmdOrCtrl+W")?)?;
         }
