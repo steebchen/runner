@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
-import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission } from "../lib/store";
+import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type SlashCommand } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
@@ -374,9 +374,10 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
   }, [draft]);
 
   const queued = useStore((s) => s.views[sessionId]?.queued) ?? EMPTY_QUEUE;
-  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
-  const [matches, setMatches] = useState<string[]>([]);
-  const [mentionIndex, setMentionIndex] = useState(0);
+  const commands = useStore((s) => s.views[sessionId]?.commands) ?? EMPTY_COMMANDS;
+  // @file mentions anywhere, /commands at the start of the message.
+  const [suggest, setSuggest] = useState<{ start: number; kind: "file" | "command"; items: Suggestion[] } | null>(null);
+  const [suggestIndex, setSuggestIndex] = useState(0);
 
   const send = () => {
     const text = draft.trim();
@@ -387,49 +388,81 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
     else void actions.send(sessionId, text);
   };
 
-  const updateMention = (text: string, caret: number) => {
+  const updateSuggestions = (text: string, caret: number) => {
+    const cmd = /^\/(\S*)$/.exec(text.slice(0, caret));
+    if (cmd && commands.length) {
+      const q = cmd[1].toLowerCase();
+      const items = commands
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .sort((a, b) => Number(!a.name.toLowerCase().startsWith(q)) - Number(!b.name.toLowerCase().startsWith(q)))
+        .slice(0, 10)
+        .map((c) => ({ value: c.name, label: `/${c.name}`, detail: c.description ?? c.input?.hint ?? "" }));
+      setSuggest(items.length ? { start: 0, kind: "command", items } : null);
+      setSuggestIndex(0);
+      return;
+    }
     const m = mentionAt(text, caret);
-    setMention(m);
-    if (!m) return;
+    if (!m) return setSuggest(null);
     void workspaceFiles(workspaceId).then((files) => {
-      setMatches(rankFiles(files, m.query));
-      setMentionIndex(0);
+      const items = rankFiles(files, m.query).map((f) => {
+        const slash = f.lastIndexOf("/");
+        return { value: f, label: f.slice(slash + 1), detail: slash > 0 ? f.slice(0, slash) : "" };
+      });
+      setSuggest(items.length ? { start: m.start, kind: "file", items } : null);
+      setSuggestIndex(0);
     });
   };
 
-  const insertMention = (path: string) => {
+  const accept = (item: Suggestion) => {
     const el = ref.current;
-    if (!el || !mention) return;
+    if (!el || !suggest) return;
     const caret = el.selectionStart;
-    const next = `${draft.slice(0, mention.start)}@${path} ${draft.slice(caret)}`;
+    const token = suggest.kind === "command" ? `/${item.value} ` : `@${item.value} `;
+    const next = `${draft.slice(0, suggest.start)}${token}${draft.slice(caret)}`;
     actions.setDraft(sessionId, next);
-    setMention(null);
-    const pos = mention.start + path.length + 2;
+    setSuggest(null);
+    const pos = suggest.start + token.length;
     requestAnimationFrame(() => el.setSelectionRange(pos, pos));
   };
-  const mentionOpen = !!mention && matches.length > 0;
+  const suggestOpen = !!suggest && suggest.items.length > 0;
+
+  // ↑/↓ in an empty (or recalled) composer walks through earlier prompts.
+  const history = useRef<{ index: number; text: string } | null>(null);
+  const recall = (dir: -1 | 1) => {
+    const sent = (useStore.getState().views[sessionId]?.transcript.items ?? []).flatMap((it) => (it.kind === "user" ? [it.text] : []));
+    const cur = history.current;
+    if (cur && cur.text !== draft) history.current = null;
+    if (!history.current && (draft || dir === 1)) return false;
+    const index = (history.current?.index ?? sent.length) + dir;
+    if (index < 0 || !sent.length) return true;
+    if (index >= sent.length) {
+      history.current = null;
+      actions.setDraft(sessionId, "");
+      return true;
+    }
+    history.current = { index, text: sent[index] };
+    actions.setDraft(sessionId, sent[index]);
+    return true;
+  };
 
   return (
     <div className="relative rounded-xl border border-border bg-elevated shadow-sm focus-within:border-accent/60">
-      {mentionOpen && (
+      {suggestOpen && (
         <div className="absolute bottom-full left-2 z-30 mb-1 w-[min(520px,90%)] overflow-hidden rounded-lg border border-border bg-elevated p-1 shadow-xl">
-          {matches.map((f, i) => {
-            const slash = f.lastIndexOf("/");
-            return (
-              <button
-                key={f}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertMention(f);
-                }}
-                onMouseEnter={() => setMentionIndex(i)}
-                className={clsx("flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs", i === mentionIndex && "bg-hover")}
-              >
-                <span className="font-medium">{f.slice(slash + 1)}</span>
-                <span className="truncate text-muted">{slash > 0 ? f.slice(0, slash) : ""}</span>
-              </button>
-            );
-          })}
+          {suggest.items.map((it, i) => (
+            <button
+              key={it.value}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                accept(it);
+              }}
+              onMouseEnter={() => setSuggestIndex(i)}
+              className={clsx("flex w-full items-baseline gap-2 rounded px-2 py-1 text-left text-xs", i === suggestIndex && "bg-hover")}
+            >
+              <span className={clsx("shrink-0 font-medium", suggest.kind === "command" && "font-mono")}>{it.label}</span>
+              <span className="truncate text-muted">{it.detail}</span>
+            </button>
+          ))}
         </div>
       )}
       {queued.length > 0 && (
@@ -444,17 +477,25 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
         value={draft}
         onChange={(e) => {
           actions.setDraft(sessionId, e.target.value);
-          updateMention(e.target.value, e.target.selectionStart);
+          updateSuggestions(e.target.value, e.target.selectionStart);
         }}
-        onBlur={() => setMention(null)}
+        onBlur={() => setSuggest(null)}
         onKeyDown={(e) => {
-          if (mentionOpen && ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
+          if (suggestOpen && ["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
             e.preventDefault();
-            if (e.key === "ArrowDown") setMentionIndex((i) => Math.min(matches.length - 1, i + 1));
-            else if (e.key === "ArrowUp") setMentionIndex((i) => Math.max(0, i - 1));
-            else if (e.key === "Escape") setMention(null);
-            else insertMention(matches[mentionIndex]);
+            if (e.key === "ArrowDown") setSuggestIndex((i) => Math.min(suggest.items.length - 1, i + 1));
+            else if (e.key === "ArrowUp") setSuggestIndex((i) => Math.max(0, i - 1));
+            else if (e.key === "Escape") setSuggest(null);
+            else accept(suggest.items[suggestIndex]);
             return;
+          }
+          if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.shiftKey && !e.metaKey && !e.altKey) {
+            const el = e.currentTarget;
+            const edge = e.key === "ArrowUp" ? !el.value.slice(0, el.selectionStart).includes("\n") : !el.value.slice(el.selectionEnd).includes("\n");
+            if (edge && recall(e.key === "ArrowUp" ? -1 : 1)) {
+              e.preventDefault();
+              return;
+            }
           }
           if (e.metaKey && e.shiftKey && (e.key === "/" || e.key === "?")) {
             e.preventDefault();
@@ -473,7 +514,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           }
         }}
         rows={1}
-        placeholder={running ? "Queue a follow-up… (Esc to stop)" : "Ask the agent to do something · @ to mention a file"}
+        placeholder={running ? "Queue a follow-up… (Esc to stop)" : `Ask the agent to do something · @ to mention a file${commands.length ? " · / for commands" : ""}`}
         className="selectable block max-h-72 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[13.5px] leading-relaxed outline-none placeholder:text-faint"
       />
       <div className="flex flex-wrap items-center gap-1 px-2 pb-2 whitespace-nowrap">
@@ -522,6 +563,8 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
 
 const EMPTY_CONFIG: ConfigOption[] = [];
 const EMPTY_QUEUE: string[] = [];
+const EMPTY_COMMANDS: SlashCommand[] = [];
+type Suggestion = { value: string; label: string; detail: string };
 
 /** This chat's cost so far (reported by the agent, or estimated from tokens). */
 function SessionCost({ sessionId }: { sessionId: string }) {

@@ -12,6 +12,8 @@ export type PendingQuestion = {
   receivedAt: number;
 };
 
+export type SlashCommand = { name: string; description?: string | null; input?: { hint?: string | null } | null };
+
 export type SessionView = {
   transcript: Transcript;
   state: "disconnected" | "connecting" | "idle" | "running" | "error";
@@ -29,6 +31,8 @@ export type SessionView = {
   queued: string[];
   /** a queued message is being edited: hold the queue until it's saved */
   queueHeld: boolean;
+  /** slash commands the agent advertises (ACP available_commands_update) */
+  commands: SlashCommand[];
 };
 
 const newView = (loaded: boolean): SessionView => ({
@@ -43,6 +47,7 @@ const newView = (loaded: boolean): SessionView => ({
   plan: false,
   queued: [],
   queueHeld: false,
+  commands: [],
 });
 
 type State = {
@@ -191,7 +196,9 @@ function handleEvents(events: CoreEvent[]) {
           v.questions = v.questions.filter((q) => q.requestId !== e.requestId);
           break;
         case "sessionUpdate":
-          if (e.update.sessionUpdate === "current_mode_update") {
+          if (e.update.sessionUpdate === "available_commands_update") {
+            v.commands = e.update.availableCommands ?? [];
+          } else if (e.update.sessionUpdate === "current_mode_update") {
             v.config = v.config.map((c) => (c.id === "mode" || c.category === "mode" ? { ...c, currentValue: e.update.currentModeId } : c));
           }
           break;

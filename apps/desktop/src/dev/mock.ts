@@ -59,6 +59,16 @@ const config = [
   { id: "fast", name: "Fast mode", description: "Faster responses on supported models", category: "model_config", type: "select", currentValue: "off", options: [{ value: "on", name: "On" }, { value: "off", name: "Off" }] },
 ];
 
+const commands = {
+  sessionUpdate: "available_commands_update",
+  availableCommands: [
+    { name: "review", description: "Review the current changes", input: null },
+    { name: "compact", description: "Summarize the conversation to free up context", input: { hint: "focus" } },
+    { name: "init", description: "Create an AGENTS.md for this repository", input: null },
+    { name: "pr-comments", description: "Address the pull request's review comments", input: null },
+  ],
+};
+
 const sessionHistory = (sid: string) => [
   { type: "userMessage", sessionId: sid, text: "Add rate limiting to the public API endpoints", ts: Date.now() - 134_000 },
   { type: "sessionUpdate", sessionId: sid, update: { sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "I'll look at how the API routes are set up first." } } },
@@ -128,7 +138,7 @@ function usageRows() {
 const handlers: Record<string, (a: any) => any> = {
   subscribe: (a) => {
     events = a.channel;
-    setTimeout(() => emit({ type: "sessionConfig", sessionId: "s1", configOptions: config }, { type: "sessionState", sessionId: "s1", state: "idle", error: null }), 50);
+    setTimeout(() => emit({ type: "sessionConfig", sessionId: "s1", configOptions: config }, { type: "sessionUpdate", sessionId: "s1", update: commands }, { type: "sessionState", sessionId: "s1", state: "idle", error: null }), 50);
   },
   list_agents: () => [
     { id: "claude", name: "Claude Code", command: "", args: [] },
@@ -219,7 +229,7 @@ const handlers: Record<string, (a: any) => any> = {
   create_session: (a) => {
     const x = { id: `s${Date.now()}`, workspaceId: a.workspaceId, agentId: a.agentId, acpSessionId: null, title: "", createdAt: Date.now() };
     sessions[a.workspaceId] = [...(sessions[a.workspaceId] ?? []), x];
-    setTimeout(() => emit({ type: "sessionConfig", sessionId: x.id, configOptions: config }, { type: "sessionState", sessionId: x.id, state: "idle", error: null }), 2200);
+    setTimeout(() => emit({ type: "sessionConfig", sessionId: x.id, configOptions: config }, { type: "sessionUpdate", sessionId: x.id, update: commands }, { type: "sessionState", sessionId: x.id, state: "idle", error: null }), 2200);
     return x;
   },
   respond_permission: (a) => {
