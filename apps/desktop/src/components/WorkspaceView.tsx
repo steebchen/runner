@@ -68,6 +68,8 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
             ...(editor ? [{ label: `${editor}  ⌘O`, onSelect: () => api.openPath(ws.path, editor).catch((e) => toast(String(e))) }] : []),
             { label: "Finder", onSelect: () => api.openPath(ws.path) },
             { label: "Terminal", onSelect: () => api.openPath(ws.path, "Terminal") },
+            { label: "Copy path", onSelect: () => void navigator.clipboard.writeText(ws.path).then(() => toast("Path copied", "info")) },
+            { label: "Copy branch name", onSelect: () => void navigator.clipboard.writeText(ws.branch).then(() => toast("Branch name copied", "info")) },
           ]}
         />
         <button

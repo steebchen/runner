@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
-import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, Search, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, History, Image as ImageIcon, ListChecks, Paperclip, RotateCw, Search, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
 import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission, type Queued, type SlashCommand, toast } from "../lib/store";
 import { ImageThumb } from "./ImageThumb";
 import { useShallow } from "zustand/react/shallow";
@@ -148,6 +148,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
             </div>
           ))}
         </div>
+        {state === "error" && <RetryBar sessionId={sessionId} items={items} />}
         {state === "running" && permissions.length === 0 && questions.length === 0 && (
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-5 pb-4 text-xs text-muted">
             <span className="pulse h-1.5 w-1.5 rounded-full bg-accent" /> Working…
@@ -300,6 +301,22 @@ const Row = memo(function Row({ item, sessionId }: { item: Item; sessionId: stri
       );
   }
 });
+
+/** After an agent error: send the last message again. */
+function RetryBar({ sessionId, items }: { sessionId: string; items: Item[] }) {
+  const last = [...items].reverse().find((it): it is Extract<Item, { kind: "user" }> => it.kind === "user");
+  if (!last) return null;
+  return (
+    <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-5 pb-4 text-xs text-muted">
+      <button
+        onClick={() => void actions.send(sessionId, last.text, last.images ?? [])}
+        className="flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-hover hover:text-fg"
+      >
+        <RotateCw size={11} /> Retry last message
+      </button>
+    </div>
+  );
+}
 
 /** Put the files back to how they were before a message. Asks for a second
  * click, since changes made after it (including commits) are discarded. */
