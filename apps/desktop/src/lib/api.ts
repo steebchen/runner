@@ -34,6 +34,23 @@ export type Choice = { value: string; name: string; description?: string | null 
 export type Catalog = { models: Choice[]; efforts: Choice[]; hasFast: boolean; updatedAt: number };
 export type LoadoutEntry = { agent: string; model: string; effort?: string | null };
 
+export type Usage = {
+  sessionId: string;
+  workspaceId: string;
+  repoId: string;
+  agent: string;
+  model: string;
+  ts: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  costUsd: number | null;
+  /** reported or estimated; null when unknown (no price set) */
+  cost: number | null;
+  estimated: boolean;
+};
+export type ModelPrice = { input: number; cachedInput: number; output: number };
+
 export type Settings = {
   loadout: LoadoutEntry[];
   opencodeModels: string[];
@@ -84,6 +101,7 @@ export type CoreEvent =
   | { type: "sessionConfig"; sessionId: string; configOptions: ConfigOption[] }
   | { type: "sessionTitle"; sessionId: string; title: string }
   | { type: "sessionMode"; sessionId: string; plan: boolean }
+  | { type: "usage"; sessionId: string; usage: Usage }
   | { type: "permissionRequest"; sessionId: string; requestId: string; toolCall: any; options: PermissionOption[] }
   | { type: "permissionResolved"; sessionId: string; requestId: string }
   | {
@@ -135,6 +153,9 @@ export const api = {
   listSessions: (workspaceId: string) => invoke<Session[]>("list_sessions", { workspaceId }),
   createSession: (workspaceId: string, agentId: string, model?: string | null, effort?: string | null) =>
     invoke<Session>("create_session", { workspaceId, agentId, model: model ?? null, effort: effort ?? null }),
+  usage: (since = 0) => invoke<Usage[]>("usage", { since }),
+  getPricing: () => invoke<Record<string, ModelPrice>>("get_pricing"),
+  savePricing: (pricing: Record<string, ModelPrice>) => invoke<void>("save_pricing", { pricing }),
   modelCatalogs: () => invoke<Record<string, Catalog>>("model_catalogs"),
   refreshCatalog: (agentId: string) => invoke<Catalog>("refresh_catalog", { agentId }),
   connectSession: (sessionId: string) => invoke<void>("connect_session", { sessionId }),

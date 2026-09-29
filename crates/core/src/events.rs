@@ -16,6 +16,8 @@ pub enum Event {
     SessionTitle { session_id: String, title: String },
     /// Runner-level permission mode: plan (agent asks) or auto-accept everything.
     SessionMode { session_id: String, plan: bool },
+    /// A finished turn's usage (cost filled in or estimated when possible).
+    Usage { session_id: String, usage: crate::usage::PricedUsage },
     PermissionRequest { session_id: String, request_id: String, tool_call: Value, options: Value },
     PermissionResolved { session_id: String, request_id: String },
     /// The agent asks the user something (ACP form elicitation): `schema` is a

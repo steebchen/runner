@@ -13,6 +13,7 @@ pub mod pty;
 pub mod recent;
 pub mod setup;
 pub mod title;
+pub mod usage;
 pub mod store;
 pub mod workspace;
 
@@ -380,6 +381,22 @@ impl Core {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         self.agents.close(session_id);
         self.store.delete_session(session_id)
+    }
+
+    // ---- usage & cost ----
+
+    /// Usage since `since` (ms) with costs reported or estimated.
+    pub fn usage(&self, since: i64) -> Result<Vec<usage::PricedUsage>> {
+        let pricing = usage::load_pricing(&self.store);
+        Ok(self.store.usage_since(since)?.into_iter().map(|u| usage::price(u, &pricing)).collect())
+    }
+
+    pub fn pricing(&self) -> usage::Pricing {
+        usage::load_pricing(&self.store)
+    }
+
+    pub fn save_pricing(&self, pricing: &usage::Pricing) -> Result<()> {
+        usage::save_pricing(&self.store, pricing)
     }
 
     // ---- model catalog ----

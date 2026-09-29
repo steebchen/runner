@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
-import { ArrowRight, FolderPlus, GitBranch, House, ListChecks, Plus, Search, Settings as SettingsIcon } from "lucide-react";
+import { ArrowRight, ChartColumn, FolderPlus, GitBranch, House, ListChecks, Plus, Search, Settings as SettingsIcon } from "lucide-react";
 import { actions, useStore } from "../lib/store";
 import { AgentIcon, effortName, findModel, modelName } from "../lib/models";
 import { pickRepo } from "../App";
@@ -78,6 +78,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     }
     out.push(
       { id: "home", label: "Home: all workspaces", icon: <House size={13} />, group: "Go to", run: () => actions.openHome() },
+      { id: "insights", label: "Insights: cost and usage", icon: <ChartColumn size={13} />, group: "Go to", run: () => actions.openInsights() },
       { id: "settings", label: "Settings", hint: "⌘,", icon: <SettingsIcon size={13} />, group: "Go to", run: () => actions.openSettings(true) },
       { id: "add-repo", label: "Add repository…", hint: "⇧⌘O", icon: <FolderPlus size={13} />, group: "Actions", run: () => void pickRepo() },
     );

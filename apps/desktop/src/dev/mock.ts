@@ -102,6 +102,29 @@ async function streamReply(sessionId: string, text: string) {
   emit({ type: "permissionRequest", sessionId, requestId: "p1", toolCall: { title: "Write src/server/limiter.test.ts" }, options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "always", name: "Always allow", kind: "allow_always" }, { optionId: "reject", name: "Reject", kind: "reject_once" }] });
 }
 
+let pricing: Record<string, any> = {};
+function usageRows() {
+  const rows: any[] = [];
+  let seed = 7;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const now = Date.now();
+  for (let d = 29; d >= 0; d--) {
+    const turns = Math.floor(rand() * 9);
+    for (let t = 0; t < turns; t++) {
+      const pick = rand();
+      const [agent, model, session, ws] = pick < 0.6 ? ["claude", "opus", "s1", "w1"] : pick < 0.9 ? ["codex", "gpt-6-astra", "s2", "w2"] : ["opencode", "zai/glm-5.3", "s1", "w1"];
+      const input = Math.floor(rand() * 4000);
+      const cached = Math.floor(20000 + rand() * 180000);
+      const output = Math.floor(200 + rand() * 6000);
+      const p = pricing[model];
+      const reported = agent === "codex" ? null : agent === "opencode" ? 0.01 * rand() : (input * 5 + cached * 0.5 + output * 25) / 1e6;
+      const cost = reported ?? (p ? (input * p.input + cached * p.cachedInput + output * p.output) / 1e6 : null);
+      rows.push({ sessionId: session, workspaceId: ws, repoId: "r1", agent, model, ts: now - d * 86400e3 - t * 600e3, inputTokens: input, cachedTokens: cached, outputTokens: output, costUsd: reported, cost, estimated: reported === null && cost !== null });
+    }
+  }
+  return rows.sort((a, b) => a.ts - b.ts);
+}
+
 const handlers: Record<string, (a: any) => any> = {
   subscribe: (a) => {
     events = a.channel;
@@ -215,6 +238,9 @@ const handlers: Record<string, (a: any) => any> = {
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
   }),
   refresh_prs: () => {},
+  usage: () => usageRows(),
+  get_pricing: () => pricing,
+  save_pricing: (a) => void (pricing = a.pricing),
   "plugin:event|listen": () => 0,
   "plugin:event|unlisten": () => {},
   connect_session: () => {},

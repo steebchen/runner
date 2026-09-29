@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, type PrStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
+import { api, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, type ModelPrice, type PrStatus, type Settings, type Usage, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
 import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
 
 export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
@@ -62,11 +62,14 @@ type State = {
   drafts: Record<string, string>;
   settings: Settings | null;
   agentStatus: AgentStatus[] | null;
-  page: "workspace" | "settings" | "home";
+  page: "workspace" | "settings" | "home" | "insights";
   /** latest PR per workspace; missing = not fetched yet, null = no PR */
   prs: Record<string, PrStatus | null>;
   /** models/efforts per agent, discovered from the agents themselves */
   catalogs: Record<string, Catalog>;
+  /** every recorded turn's tokens and cost, oldest first */
+  usage: Usage[];
+  pricing: Record<string, ModelPrice>;
   /** repos recently used with coding agents, for "Add repository" */
   recents: { path: string; name: string; lastUsed: number }[];
 };
@@ -90,6 +93,8 @@ export const useStore = create<State>(() => ({
   prs: {},
   catalogs: {},
   recents: [],
+  usage: [],
+  pricing: {},
 }));
 
 const set = useStore.setState;
@@ -124,6 +129,10 @@ function handleEvents(events: CoreEvent[]) {
     if (e.type === "scriptOutput") {
       if (scriptLog === s.scriptLog) scriptLog = { ...scriptLog };
       scriptLog[e.workspaceId] = (scriptLog[e.workspaceId] ?? "") + e.data;
+      continue;
+    }
+    if (e.type === "usage") {
+      set({ usage: [...get().usage, e.usage] });
       continue;
     }
     if (e.type === "workspacePr") {
@@ -264,6 +273,7 @@ export const actions = {
     applyTheme(settings.theme);
     void actions.detectAgents().then(() => actions.ensureCatalogs());
     void actions.loadRecents();
+    void actions.loadUsage();
     const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
     const sessions: Record<string, Session[]> = {};
     const selectedSession: Record<string, string> = {};
@@ -274,6 +284,23 @@ export const actions = {
     const views: Record<string, SessionView> = {};
     for (const l of lists) for (const x of l) views[x.id] = newView(false);
     set({ ready: true, prs: prs ?? {}, catalogs: catalogs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
+  },
+
+  async loadUsage() {
+    const [usage, pricing] = await Promise.all([api.usage(0).catch(() => null), api.getPricing().catch(() => null)]);
+    set({ ...(usage ? { usage } : {}), ...(pricing ? { pricing } : {}) });
+  },
+
+  async savePricing(pricing: Record<string, ModelPrice>) {
+    set({ pricing });
+    await guard(api.savePricing(pricing));
+    // Estimates are computed by the core; reload so they reflect new prices.
+    const usage = await api.usage(0).catch(() => null);
+    if (usage) set({ usage });
+  },
+
+  openInsights() {
+    set({ page: "insights" });
   },
 
   async loadRecents() {
@@ -594,4 +621,32 @@ export function startBadgeSync() {
   };
   useStore.subscribe(() => void update());
   void update();
+}
+
+export type Totals = { cost: number; tokens: number; estimated: boolean; unpriced: number };
+
+/** Sum usage rows: cost (reported + estimated), tokens, and how many turns have no price. */
+export function totals(rows: Usage[]): Totals {
+  const t: Totals = { cost: 0, tokens: 0, estimated: false, unpriced: 0 };
+  for (const u of rows) {
+    t.tokens += u.inputTokens + u.cachedTokens + u.outputTokens;
+    if (u.cost === null) t.unpriced++;
+    else {
+      t.cost += u.cost;
+      if (u.estimated) t.estimated = true;
+    }
+  }
+  return t;
+}
+
+export function formatCost(cost: number, estimated = false) {
+  const s = cost >= 100 ? cost.toFixed(0) : cost >= 1 ? cost.toFixed(2) : cost > 0 ? cost.toFixed(cost < 0.01 ? 3 : 2) : "0.00";
+  return `${estimated ? "≈ " : ""}$${s}`;
+}
+
+export function formatTokens(n: number) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}k`;
+  return String(n);
 }

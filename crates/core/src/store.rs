@@ -48,6 +48,25 @@ pub struct Session {
     pub effort: Option<String>,
 }
 
+/// One agent turn's token usage and (if the agent reports it) cost.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageRecord {
+    pub session_id: String,
+    pub workspace_id: String,
+    pub repo_id: String,
+    pub agent: String,
+    pub model: String,
+    pub ts: i64,
+    /// Uncached input tokens.
+    pub input_tokens: i64,
+    /// Input tokens read from (or written to) the prompt cache.
+    pub cached_tokens: i64,
+    /// Output tokens, including reasoning.
+    pub output_tokens: i64,
+    pub cost_usd: Option<f64>,
+}
+
 pub fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -94,6 +113,22 @@ CREATE TABLE IF NOT EXISTS events (
     data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_session ON events(session_id, seq);
+CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    repo_id TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    model TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    -- As reported by the agent; NULL when it doesn't report cost (estimated from tokens).
+    cost_usd REAL
+);
+CREATE INDEX IF NOT EXISTS usage_ts ON usage(ts);
+CREATE INDEX IF NOT EXISTS usage_session ON usage(session_id);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -166,6 +201,43 @@ impl Store {
         conn.execute("DELETE FROM workspaces WHERE repo_id = ?1", [id])?;
         conn.execute("DELETE FROM repos WHERE id = ?1", [id])?;
         Ok(())
+    }
+
+    pub fn add_usage(&self, u: &UsageRecord) -> Result<()> {
+        self.conn.lock().execute(
+            "INSERT INTO usage (session_id, workspace_id, repo_id, agent, model, ts, input_tokens, cached_tokens, output_tokens, cost_usd)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![u.session_id, u.workspace_id, u.repo_id, u.agent, u.model, u.ts, u.input_tokens, u.cached_tokens, u.output_tokens, u.cost_usd],
+        )?;
+        Ok(())
+    }
+
+    pub fn usage_for_session(&self, session_id: &str) -> Result<Vec<UsageRecord>> {
+        Ok(self.usage_since(0)?.into_iter().filter(|u| u.session_id == session_id).collect())
+    }
+
+    /// All usage rows since `since` (ms), oldest first.
+    pub fn usage_since(&self, since: i64) -> Result<Vec<UsageRecord>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT session_id, workspace_id, repo_id, agent, model, ts, input_tokens, cached_tokens, output_tokens, cost_usd
+             FROM usage WHERE ts >= ?1 ORDER BY ts",
+        )?;
+        let rows = stmt.query_map([since], |r| {
+            Ok(UsageRecord {
+                session_id: r.get(0)?,
+                workspace_id: r.get(1)?,
+                repo_id: r.get(2)?,
+                agent: r.get(3)?,
+                model: r.get(4)?,
+                ts: r.get(5)?,
+                input_tokens: r.get(6)?,
+                cached_tokens: r.get(7)?,
+                output_tokens: r.get(8)?,
+                cost_usd: r.get(9)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn setting(&self, key: &str) -> Result<Option<String>> {

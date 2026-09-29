@@ -11,6 +11,7 @@ import { WorkspaceView } from "./components/WorkspaceView";
 import { Toast } from "./components/Toast";
 import { AgentSetup, Settings } from "./components/Settings";
 import { Home } from "./components/Home";
+import { Insights } from "./components/Insights";
 
 export async function pickRepo() {
   const path = await open({ directory: true, title: "Choose a git repository" });
@@ -123,6 +124,8 @@ export function App() {
           <Settings />
         ) : page === "home" ? (
           <Home />
+        ) : page === "insights" ? (
+          <Insights />
         ) : selected ? (
           <WorkspaceView key={selected} workspaceId={selected} />
         ) : (

@@ -240,6 +240,22 @@ async fn create_pr(app: State<'_, App>, workspace_id: String, title: String, bod
 }
 
 #[tauri::command]
+fn usage(app: State<'_, App>, since: i64) -> Res<Value> {
+    let rows = app.core.usage(since).map_err(err)?;
+    serde_json::to_value(rows).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_pricing(app: State<'_, App>) -> Value {
+    serde_json::to_value(app.core.pricing()).unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_pricing(app: State<'_, App>, pricing: runner_core::usage::Pricing) -> Res<()> {
+    app.core.save_pricing(&pricing).map_err(err)
+}
+
+#[tauri::command]
 fn model_catalogs(app: State<'_, App>) -> Value {
     serde_json::to_value(app.core.catalogs()).unwrap_or_default()
 }
@@ -455,6 +471,9 @@ pub fn run() {
             merge_pr,
             cached_prs,
             model_catalogs,
+            usage,
+            get_pricing,
+            save_pricing,
             refresh_catalog,
             refresh_prs,
             terminal_open,

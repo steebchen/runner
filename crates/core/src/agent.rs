@@ -67,6 +67,10 @@ struct LiveSession {
     config: Mutex<Value>,
     /// The agent accepts `_session/steering` (messages injected mid-turn).
     steering: AtomicBool,
+    /// Latest cumulative cost the agent process reported (Claude and OpenCode
+    /// report a running total per process), and this turn's share of it.
+    cost_reported: Mutex<Option<f64>>,
+    turn_cost: Mutex<Option<f64>>,
     /// Model and effort to apply once a brand-new ACP session exists.
     initial: Mutex<Option<(Option<String>, Option<String>)>>,
 }
@@ -123,6 +127,8 @@ impl Agents {
             applying_mode: AtomicBool::new(false),
             config: Mutex::new(json!([])),
             steering: AtomicBool::new(false),
+            cost_reported: Mutex::new(None),
+            turn_cost: Mutex::new(None),
             initial: Mutex::new(None),
         });
         Ok(self.sessions.lock().entry(session.id.clone()).or_insert(live).clone())
@@ -176,6 +182,8 @@ impl Agents {
         }
 
         let (conn, rx) = AcpConnection::spawn(&s.agent.command, &s.agent.args, &s.cwd)?;
+        // A new agent process starts its running cost total from scratch.
+        *s.cost_reported.lock() = None;
         tokio::spawn(self.clone().handle_incoming(s.clone(), conn.clone(), rx));
 
         let init = conn
@@ -335,6 +343,23 @@ impl Agents {
                     self.check_plan_exit(s);
                 }
             }
+            "usage_update" => {
+                if let Some(total) = update.pointer("/cost/amount").and_then(|v| v.as_f64()) {
+                    if update.pointer("/cost/currency").and_then(|c| c.as_str()).unwrap_or("USD") == "USD" {
+                        let mut last = s.cost_reported.lock();
+                        // Per-process running total: the increase is this turn's
+                        // cost; a smaller value means the total was reset.
+                        let delta = match *last {
+                            Some(prev) if total + 1e-9 >= prev => total - prev,
+                            Some(_) => total,
+                            None => 0.0_f64.max(total - self.baseline_after_resume(s, total)),
+                        };
+                        *last = Some(total);
+                        let mut turn = s.turn_cost.lock();
+                        *turn = Some(turn.unwrap_or(0.0) + delta);
+                    }
+                }
+            }
             "current_mode_update" => {
                 if let Some(mode) = update.get("currentModeId").and_then(|m| m.as_str()) {
                     let mut config = s.config.lock().clone();
@@ -358,6 +383,59 @@ impl Agents {
             _ => {}
         }
         self.emitter.emit(Event::SessionUpdate { session_id: s.id.clone(), update });
+    }
+
+    /// First cost report of a freshly connected process. A brand-new session
+    /// starts at zero; a resumed one may report its earlier total again, so we
+    /// count only what exceeds the cost already recorded for this session.
+    fn baseline_after_resume(&self, s: &LiveSession, total: f64) -> f64 {
+        if s.acp_session_id.lock().is_none() {
+            return 0.0;
+        }
+        let recorded: f64 = self
+            .store
+            .usage_for_session(&s.id)
+            .map(|rows| rows.iter().filter_map(|u| u.cost_usd).sum())
+            .unwrap_or(0.0);
+        // If the reported total is below what we recorded, it restarted at zero.
+        if total + 1e-9 >= recorded { recorded } else { 0.0 }
+    }
+
+    /// Store a finished turn's tokens and cost, and tell the UI.
+    fn record_usage(&self, s: &LiveSession, result: &Value) {
+        let cost = s.turn_cost.lock().take();
+        let usage = &result["usage"];
+        let n = |k: &str| usage[k].as_i64().unwrap_or(0);
+        let input = n("inputTokens");
+        let cached = n("cachedReadTokens") + n("cachedWriteTokens");
+        let output = n("outputTokens") + n("thoughtTokens");
+        if input + cached + output == 0 && cost.is_none() {
+            return;
+        }
+        let model = crate::catalog::model_option(&s.config.lock())
+            .and_then(|o| o["currentValue"].as_str().map(str::to_string))
+            .or_else(|| result.pointer("/_meta/quota/model_usage/0/model").and_then(|m| m.as_str()).map(str::to_string))
+            .unwrap_or_else(|| "unknown".into());
+        let Ok(ws) = self.store.workspace(&s.workspace_id) else { return };
+        let record = crate::store::UsageRecord {
+            session_id: s.id.clone(),
+            workspace_id: ws.id,
+            repo_id: ws.repo_id,
+            agent: s.agent.id.clone(),
+            model,
+            ts: now(),
+            input_tokens: input,
+            cached_tokens: cached,
+            output_tokens: output,
+            cost_usd: cost,
+        };
+        if self.store.add_usage(&record).is_ok() {
+            let pricing = crate::usage::load_pricing(&self.store);
+            self.emitter.emit(Event::Usage {
+                session_id: s.id.clone(),
+                usage: crate::usage::price(record, &pricing),
+            });
+        }
     }
 
     fn set_config_options(&self, s: &LiveSession, opts: Value) {
@@ -566,6 +644,9 @@ impl Agents {
             }
             .await;
             s.running.store(false, Ordering::SeqCst);
+            if let Ok(r) = &result {
+                this.record_usage(&s, r);
+            }
             match result {
                 Ok(r) => {
                     let stop_reason =

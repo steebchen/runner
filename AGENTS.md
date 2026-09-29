@@ -28,11 +28,14 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
                           configOptions (short discovery session or live sessions)
   src/workspace.rs        runner.json config, workspace naming
   src/recent.rs           "Recents" for Add repository, from Claude/Codex history
+  src/usage.rs            Cost of usage rows: agent-reported, or estimated from
+                          tokens with user prices (Settings → Pricing)
   src/env.rs              Login-shell env capture (GUI apps lack the user's PATH)
   src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
                           create -> archive (worktree removed, branch kept) -> restore)
   tests/                  Integration tests with a scripted fake ACP agent
-  examples/               detect.rs, e2e.rs, catalog.rs, preset.rs, ask.rs (real agents), title.rs
+  examples/               detect.rs, e2e.rs, catalog.rs, preset.rs, ask.rs, steer.rs,
+                          usage.rs (real agents), recent.rs, title.rs
 apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel
 apps/desktop/src/         React 19 UI
   lib/api.ts              Typed wrappers for every Tauri command + event types
@@ -70,6 +73,7 @@ RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p runner-core --test gi
 - **Models:** the picker (`ModelPicker.tsx`) shows the user's loadout (`Settings.loadout`, first entry = default for new workspaces) and searches all Claude/Codex models plus the OpenCode models chosen in settings. Picking another agent's model opens a new chat, which replaces the current chat if it's empty. New sessions get model/effort via `Core::create_session(.., model, effort)`, applied on connect.
 - **Questions:** Runner advertises `elicitation.form`, so agents ask structured questions over ACP `elicitation/create` (Claude's AskUserQuestion, Codex's request_user_input). Questions are never auto-answered. `lib/questions.ts` normalizes both schema styles, `QuestionCard.tsx` walks the user through them, and the answer goes back as `{action: accept|decline|cancel, content}`. Real-agent check: `cargo run -p runner-core --example ask -- <repo> claude|codex`.
 - **Menus and shortcuts:** app-level shortcuts are native menu items (`install_menu` in the Tauri crate) that emit a `menu` event; `runCommand` in `App.tsx` handles them, and the same ids are used for the in-page fallbacks.
+- **Usage and cost:** every finished turn stores a `usage` row (tokens, model, cost). Claude/OpenCode report a running cost total per agent process, so a turn's cost is the difference between reports; the first report after a reconnect is compared with what's already recorded, because resumed sessions continue their old total. Codex reports tokens only; estimates are computed at read time from `Settings → Pricing`, so new prices apply retroactively. Real check: `cargo run -p runner-core --example usage -- <repo> claude|codex`.
 - **Permissions:** sessions auto-accept every permission request by default. Plan mode (Shift+Tab in the composer) forwards requests to the user. Agent permission pickers are hidden in the UI.
 - **Platform-specific code stays isolated** (e.g. `open -a` in the Tauri layer), so Linux and Windows remain additive.
 

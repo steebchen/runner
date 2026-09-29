@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import clsx from "clsx";
 import {
   Archive,
+  ChartColumn,
   CircleDashed,
   CircleX,
   FolderPlus,
@@ -22,7 +23,7 @@ import {
 import { checkSummary, prAppearance } from "../lib/pr";
 import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
-import { actions, useStore, workspaceActivity } from "../lib/store";
+import { actions, formatCost, useStore, workspaceActivity } from "../lib/store";
 import type { PrStatus, Repo, Workspace } from "../lib/api";
 import { AddRepoMenu } from "./AddRepoMenu";
 
@@ -46,8 +47,9 @@ export function Sidebar() {
           )}
         />
       </div>
-      <div className="px-2 pb-2">
+      <div className="space-y-0.5 px-2 pb-2">
         <HomeButton />
+        <InsightsButton />
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         {repos.map((r) => (
@@ -81,6 +83,31 @@ function HomeButton() {
       <House size={14} className="shrink-0 text-muted" />
       <span className="flex-1">Home</span>
       <span className="text-[11px] text-faint">{count}</span>
+    </button>
+  );
+}
+
+function InsightsButton() {
+  const active = useStore((s) => s.page === "insights");
+  const today = useStore((s) => {
+    const start = new Date().setHours(0, 0, 0, 0);
+    return s.usage.reduce((sum, u) => (u.ts >= start && u.cost ? sum + u.cost : sum), 0);
+  });
+  return (
+    <button
+      onClick={() => actions.openInsights()}
+      className={clsx(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left",
+        active ? "bg-hover font-medium text-fg" : "text-fg/90 hover:bg-hover/60",
+      )}
+    >
+      <ChartColumn size={14} className="shrink-0 text-muted" />
+      <span className="flex-1">Insights</span>
+      {today > 0 && (
+        <span className="text-[11px] text-faint" title="Cost today">
+          {formatCost(today)}
+        </span>
+      )}
     </button>
   );
 }

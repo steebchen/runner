@@ -2,7 +2,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ArrowDown, ArrowUp, Brain, Check, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, Clock, Copy, CornerDownLeft, ListChecks, Pencil, ShieldQuestion, Square, X, Zap } from "lucide-react";
-import { actions, useStore, type PendingQuestion, type Permission } from "../lib/store";
+import { actions, formatCost, formatTokens, totals, useStore, type PendingQuestion, type Permission } from "../lib/store";
+import { useShallow } from "zustand/react/shallow";
 import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
 import type { ConfigOption, SelectOption } from "../lib/api";
@@ -498,6 +499,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
           <ConfigControl key={c.id} sessionId={sessionId} option={c} />
         ))}
         <div className="flex-1" />
+        <SessionCost sessionId={sessionId} />
         {usage && usage.size > 0 && <ContextUsage used={usage.used} size={usage.size} />}
         {running ? (
           <button onClick={() => actions.cancel(sessionId)} title="Stop (Esc)" className="rounded-md bg-fg p-1.5 text-bg">
@@ -520,6 +522,28 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
 
 const EMPTY_CONFIG: ConfigOption[] = [];
 const EMPTY_QUEUE: string[] = [];
+
+/** This chat's cost so far (reported by the agent, or estimated from tokens). */
+function SessionCost({ sessionId }: { sessionId: string }) {
+  const t = useStore(useShallow((s) => totals(s.usage.filter((u) => u.sessionId === sessionId))));
+  if (!t.tokens) return null;
+  const known = t.cost > 0 || !t.unpriced;
+  return (
+    <span
+      className="mr-1 shrink-0 text-[11px] text-muted"
+      title={[
+        `This chat: ${formatTokens(t.tokens)} tokens`,
+        known ? `${formatCost(t.cost, t.estimated)}${t.estimated ? " (partly estimated from tokens)" : " as reported by the agent"}` : "",
+        t.unpriced ? `${t.unpriced} turn(s) without a price: set model prices in Settings → Pricing` : "",
+        "At API prices; subscription plans aren't billed per token.",
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      {known ? formatCost(t.cost, t.estimated) : `${formatTokens(t.tokens)} tok`}
+    </span>
+  );
+}
 
 function compact(n: number) {
   if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M`;
