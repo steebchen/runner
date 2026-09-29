@@ -108,3 +108,57 @@ async fn prompt_permission_config_and_resume() {
     assert_eq!(core.store.session(&sid).unwrap().acp_session_id.as_deref(), Some("fake-1"));
     core.shutdown();
 }
+
+#[tokio::test]
+async fn questions_are_forwarded_and_answered() {
+    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    let tmp = tempfile::tempdir().unwrap();
+    let (log, sink) = event_log();
+    let core = Core::new(tmp.path(), sink).unwrap();
+    core.agents.register(AgentDef {
+        id: "fake".into(),
+        name: "Fake".into(),
+        command: "node".into(),
+        args: vec![concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.mjs").into()],
+    });
+    core.store
+        .add_repo(&Repo { id: "r".into(), name: "r".into(), path: tmp.path().display().to_string(), default_branch: "main".into() })
+        .unwrap();
+    core.store
+        .add_workspace(&Workspace {
+            id: "w".into(),
+            repo_id: "r".into(),
+            name: "w".into(),
+            branch: "b".into(),
+            base_branch: "main".into(),
+            path: tmp.path().display().to_string(),
+            status: "ready".into(),
+            created_at: 0,
+            title: String::new(),
+            archived_at: None,
+            unread: false,
+        })
+        .unwrap();
+    let sid = core.create_session("w", "fake", None, None).unwrap().id;
+
+    // Auto mode still forwards questions: they need a human.
+    core.agents.prompt(&sid, "ask me".into()).unwrap();
+    let Event::Question { request_id, message, schema, .. } =
+        wait_for(&log, "question", |e| matches!(e, Event::Question { .. })).await
+    else {
+        unreachable!()
+    };
+    assert_eq!(message, "Which color?");
+    assert!(schema["properties"]["question_0"]["oneOf"].is_array());
+    core.agents
+        .answer_question(&sid, &request_id, json!({"action": "accept", "content": {"question_0": "Blue"}}))
+        .await
+        .unwrap();
+    wait_for(&log, "resolved", |e| matches!(e, Event::QuestionResolved { .. })).await;
+    wait_for(&log, "agent got answer", |e| {
+        matches!(e, Event::SessionUpdate { update, .. }
+            if update["content"]["text"].as_str().is_some_and(|t| t.contains("\"question_0\":\"Blue\"")))
+    })
+    .await;
+    core.shutdown();
+}

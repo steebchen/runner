@@ -2,7 +2,8 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import clsx from "clsx";
 import { ArrowUp, Brain, ChevronRight, ChevronsRight, Circle, CircleCheck, CircleDot, ListChecks, ShieldQuestion, Square, Zap } from "lucide-react";
-import { actions, useStore, type Permission } from "../lib/store";
+import { actions, useStore, type PendingQuestion, type Permission } from "../lib/store";
+import { QuestionCard } from "./QuestionCard";
 import type { Item } from "../lib/transcript";
 import type { ConfigOption, SelectOption } from "../lib/api";
 import { Markdown } from "./Markdown";
@@ -15,6 +16,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
   const state = useStore((s) => s.views[sessionId]?.state ?? "disconnected");
   const loaded = useStore((s) => s.views[sessionId]?.loaded ?? false);
   const permissions = useStore((s) => s.views[sessionId]?.permissions) ?? EMPTY_PERMS;
+  const questions = useStore((s) => s.views[sessionId]?.questions) ?? EMPTY_QUESTIONS;
   const scrollRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
@@ -30,7 +32,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [items, virtualizer.getTotalSize(), permissions.length]);
+  }, [items, virtualizer.getTotalSize(), permissions.length, questions.length]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -54,13 +56,14 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
             </div>
           ))}
         </div>
-        {state === "running" && permissions.length === 0 && (
+        {state === "running" && permissions.length === 0 && questions.length === 0 && (
           <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-5 pb-4 text-xs text-muted">
             <span className="pulse h-1.5 w-1.5 rounded-full bg-accent" /> Working…
           </div>
         )}
       </div>
       <div className="mx-auto w-full max-w-3xl px-5 pb-4">
+        {questions[0] && <QuestionCard key={questions[0].requestId} sessionId={sessionId} question={questions[0]} />}
         {permissions.map((p) => (
           <PermissionPrompt key={p.requestId} sessionId={sessionId} permission={p} />
         ))}
@@ -72,6 +75,7 @@ export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceI
 
 const EMPTY: Item[] = [];
 const EMPTY_PERMS: Permission[] = [];
+const EMPTY_QUESTIONS: PendingQuestion[] = [];
 
 function EmptyChat({ state }: { state: string }) {
   return (
@@ -150,14 +154,29 @@ function Thought({ text }: { text: string }) {
   );
 }
 
+/** Plan text of a plan-approval request (Claude's ExitPlanMode and similar). */
+function planText(toolCall: any): string | null {
+  if (typeof toolCall?.rawInput?.plan === "string") return toolCall.rawInput.plan;
+  const texts = (toolCall?.content ?? [])
+    .filter((c: any) => c?.type === "content" && c.content?.type === "text")
+    .map((c: any) => c.content.text);
+  return texts.length ? texts.join("\n\n") : null;
+}
+
 function PermissionPrompt({ sessionId, permission }: { sessionId: string; permission: Permission }) {
   const title = permission.toolCall?.title ?? "The agent wants to run a tool";
+  const plan = planText(permission.toolCall);
   return (
     <div className="mb-2 rounded-lg border border-warn/50 bg-elevated p-3 shadow-sm">
       <div className="mb-2 flex items-center gap-2 text-[13px]">
         <ShieldQuestion size={14} className="shrink-0 text-warn" />
-        <span className="font-mono text-[12px]">{title}</span>
+        <span className={clsx(plan ? "font-medium" : "font-mono text-[12px]")}>{title}</span>
       </div>
+      {plan && (
+        <div className="mb-3 max-h-80 overflow-y-auto rounded-md border border-border bg-bg px-3 py-2">
+          <Markdown text={plan} />
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5">
         {permission.options.map((o) => (
           <button

@@ -31,7 +31,7 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
                           create -> archive (worktree removed, branch kept) -> restore)
   tests/                  Integration tests with a scripted fake ACP agent
-  examples/               detect.rs, e2e.rs, catalog.rs, preset.rs (real agents), title.rs
+  examples/               detect.rs, e2e.rs, catalog.rs, preset.rs, ask.rs (real agents), title.rs
 apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel
 apps/desktop/src/         React 19 UI
   lib/api.ts              Typed wrappers for every Tauri command + event types
@@ -67,6 +67,7 @@ RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p runner-core --test gi
 - **Events are the only way the UI learns about changes.** Core emits `Event`s; transcript events are persisted and replayed by the same reducer (`transcript.ts`). Add new UI-visible state as an `Event` variant plus a `CoreEvent` type in `api.ts`.
 - **Agent differences live in the core.** The UI renders ACP `configOptions` generically. Agent-specific mapping (e.g. plan vs. bypass modes) goes in `agent.rs`, with unit tests.
 - **Models:** the picker (`ModelPicker.tsx`) shows the user's loadout (`Settings.loadout`, first entry = default for new workspaces) and searches all Claude/Codex models plus the OpenCode models chosen in settings. Picking another agent's model opens a new chat, which replaces the current chat if it's empty. New sessions get model/effort via `Core::create_session(.., model, effort)`, applied on connect.
+- **Questions:** Runner advertises `elicitation.form`, so agents ask structured questions over ACP `elicitation/create` (Claude's AskUserQuestion, Codex's request_user_input). Questions are never auto-answered. `lib/questions.ts` normalizes both schema styles, `QuestionCard.tsx` walks the user through them, and the answer goes back as `{action: accept|decline|cancel, content}`. Real-agent check: `cargo run -p runner-core --example ask -- <repo> claude|codex`.
 - **Permissions:** sessions auto-accept every permission request by default. Plan mode (Shift+Tab in the composer) forwards requests to the user. Agent permission pickers are hidden in the UI.
 - **Platform-specific code stays isolated** (e.g. `open -a` in the Tauri layer), so Linux and Windows remain additive.
 

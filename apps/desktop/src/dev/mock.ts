@@ -143,7 +143,34 @@ const handlers: Record<string, (a: any) => any> = {
       { id: "opencode", name: "OpenCode", installed: false, version: null, loggedIn: false, account: null, installCommand: "curl -fsSL https://opencode.ai/install | bash", loginCommand: "opencode auth login", logoutCommand: "opencode auth logout" },
     ];
   },
+  answer_question: (a) => {
+    emit(
+      { type: "questionResolved", sessionId: a.sessionId, requestId: a.requestId },
+      { type: "sessionUpdate", sessionId: a.sessionId, update: { sessionUpdate: "agent_message_chunk", messageId: `ans${Date.now()}`, content: { type: "text", text: `Got it: \`${JSON.stringify(a.response)}\`` } } },
+      { type: "turnEnd", sessionId: a.sessionId, stopReason: "end_turn", ts: 0 },
+      { type: "sessionState", sessionId: a.sessionId, state: "idle", error: null },
+    );
+  },
   send_prompt: (a) => {
+    if (a.text.startsWith("ask")) {
+      const codex = a.text.includes("codex");
+      emit({ type: "userMessage", sessionId: a.sessionId, text: a.text, ts: Date.now() }, { type: "sessionState", sessionId: a.sessionId, state: "running", error: null });
+      const schema = codex
+        ? { type: "object", required: ["preferred_color", "include_tests"], properties: {
+            include_tests: { type: "string", title: "Should tests be included?", description: "Tests", _meta: { codex: { isOther: true } }, oneOf: [{ const: "Yes", title: "Yes", description: "Include tests." }, { const: "No", title: "No", description: "Do not include tests." }, { const: "None of the above", title: "None of the above", description: "Provide a different answer in the note field." }] },
+            include_tests_note: { type: "string", title: "Additional answer or note", _meta: { codex: { role: "user_note", questionId: "include_tests" } } },
+            preferred_color: { type: "string", title: "What is your preferred color?", description: "Color", _meta: { codex: { isOther: true } }, oneOf: [{ const: "Red", title: "Red", description: "Use red." }, { const: "Blue", title: "Blue", description: "Use blue." }] },
+            preferred_color_note: { type: "string", title: "Additional answer or note", _meta: { codex: { role: "user_note", questionId: "preferred_color" } } },
+          } }
+        : { type: "object", properties: {
+            question_0: { type: "string", title: "Storage", description: "Where should rate-limit counters live?", oneOf: [{ const: "Redis", title: "Redis", description: "Shared across instances; needs a Redis server.", _meta: { "_claude/askUserQuestionOption": { preview: "const store = new RedisStore(redis);" } } }, { const: "In memory", title: "In memory", description: "Simplest; per-instance limits." }] },
+            question_0_custom: { type: "string", title: "Other", description: "Type your own answer, or add a note to the option you chose above (optional)." },
+            question_1: { type: "array", title: "Routes", description: "Which routes should be limited?", items: { anyOf: [{ const: "/api/public", title: "/api/public" }, { const: "/api/auth", title: "/api/auth" }, { const: "/api/admin", title: "/api/admin" }] } },
+            question_1_custom: { type: "string", title: "Other", description: "Type your own answer to add to your selection above (optional)." },
+          } };
+      setTimeout(() => emit({ type: "question", sessionId: a.sessionId, requestId: `q${Date.now()}`, message: codex ? "Codex needs your input to continue." : "Please answer the following questions.", schema, toolCallId: null, autoResolveMs: codex ? 60000 : null }), 300);
+      return;
+    }
     const ws = workspaces.find((w) => sessions[w.id]?.some((x) => x.id === a.sessionId));
     if (ws && !ws.title) {
       const quick = a.text.split(/\s+/).slice(0, 5).join(" ");

@@ -168,6 +168,11 @@ async fn respond_permission(
 }
 
 #[tauri::command]
+async fn answer_question(app: State<'_, App>, session_id: String, request_id: String, response: Value) -> Res<()> {
+    app.core.agents.answer_question(&session_id, &request_id, response).await.map_err(err)
+}
+
+#[tauri::command]
 async fn set_config(app: State<'_, App>, session_id: String, config_id: String, value: Value) -> Res<()> {
     app.core.agents.set_config(&session_id, &config_id, value).await.map_err(err)
 }
@@ -399,6 +404,7 @@ pub fn run() {
             cancel_prompt,
             respond_permission,
             set_config,
+            answer_question,
             set_plan_mode,
             changed_files,
             file_diff,

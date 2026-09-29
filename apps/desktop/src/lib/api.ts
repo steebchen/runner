@@ -86,6 +86,16 @@ export type CoreEvent =
   | { type: "sessionMode"; sessionId: string; plan: boolean }
   | { type: "permissionRequest"; sessionId: string; requestId: string; toolCall: any; options: PermissionOption[] }
   | { type: "permissionResolved"; sessionId: string; requestId: string }
+  | {
+      type: "question";
+      sessionId: string;
+      requestId: string;
+      message: string;
+      schema: any;
+      toolCallId: string | null;
+      autoResolveMs: number | null;
+    }
+  | { type: "questionResolved"; sessionId: string; requestId: string }
   | { type: "workspaceStatus"; workspaceId: string; status: string }
   | { type: "workspaceTitle"; workspaceId: string; title: string }
   | { type: "workspacePr"; workspaceId: string; pr: PrStatus | null }
@@ -134,6 +144,8 @@ export const api = {
     invoke<void>("respond_permission", { sessionId, requestId, optionId }),
   setConfig: (sessionId: string, configId: string, value: string | boolean) =>
     invoke<void>("set_config", { sessionId, configId, value }),
+  answerQuestion: (sessionId: string, requestId: string, response: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
+    invoke<void>("answer_question", { sessionId, requestId, response }),
   setPlanMode: (sessionId: string, plan: boolean) => invoke<void>("set_plan_mode", { sessionId, plan }),
   changedFiles: (workspaceId: string) => invoke<ChangedFile[]>("changed_files", { workspaceId }),
   fileDiff: (workspaceId: string, path: string) => invoke<string>("file_diff", { workspaceId, path }),

@@ -167,7 +167,7 @@ function SessionTab({ session, agentName, active }: { session: Session; agentNam
   // Only non-idle states get a dot; idle chats stay calm.
   const dot = useStore((s) => {
     const v = s.views[session.id];
-    if (v?.permissions.length) return "bg-warn";
+    if (v?.permissions.length || v?.questions.length) return "bg-warn";
     if (v?.state === "running") return "pulse bg-accent";
     if (v?.state === "error") return "bg-del-fg";
     return v?.unread ? "bg-add-fg" : null;

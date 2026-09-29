@@ -53,6 +53,8 @@ struct LiveSession {
     acp_session_id: Mutex<Option<String>>,
     /// Our request id -> JSON-RPC id of the agent's pending permission request.
     permissions: Mutex<HashMap<String, Value>>,
+    /// Our request id -> JSON-RPC id of a pending question (elicitation).
+    questions: Mutex<HashMap<String, Value>>,
     running: AtomicBool,
     replaying: AtomicBool,
     titled: AtomicBool,
@@ -111,6 +113,7 @@ impl Agents {
             conn: tokio::sync::Mutex::new(None),
             acp_session_id: Mutex::new(session.acp_session_id.clone()),
             permissions: Mutex::default(),
+            questions: Mutex::default(),
             running: AtomicBool::new(false),
             replaying: AtomicBool::new(false),
             titled: AtomicBool::new(!session.title.is_empty()),
@@ -179,7 +182,10 @@ impl Agents {
                     "protocolVersion": PROTOCOL_VERSION,
                     "clientCapabilities": {
                         "fs": {"readTextFile": false, "writeTextFile": false},
-                        "terminal": false
+                        "terminal": false,
+                        // Lets agents ask the user structured questions
+                        // (Claude's AskUserQuestion, Codex's request_user_input).
+                        "elicitation": {"form": {}}
                     },
                     "clientInfo": {"name": "runner", "version": env!("CARGO_PKG_VERSION")}
                 }),
@@ -270,6 +276,22 @@ impl Agents {
                             options: params.get("options").cloned().unwrap_or(json!([])),
                         });
                     }
+                    "elicitation/create" if params["mode"] == "form" || params["mode"].is_null() => {
+                        let request_id = uuid::Uuid::new_v4().to_string();
+                        s.questions.lock().insert(request_id.clone(), id);
+                        self.emitter.emit(Event::Question {
+                            session_id: s.id.clone(),
+                            request_id,
+                            message: params["message"].as_str().unwrap_or("").to_string(),
+                            schema: params.get("requestedSchema").cloned().unwrap_or(json!({})),
+                            tool_call_id: params["toolCallId"].as_str().map(str::to_string),
+                            auto_resolve_ms: params.pointer("/_meta/codex/autoResolutionMs").and_then(|v| v.as_u64()),
+                        });
+                    }
+                    "elicitation/create" => {
+                        // URL mode (e.g. MCP OAuth) isn't supported yet.
+                        let _ = conn.respond(id, json!({"action": "decline"})).await;
+                    }
                     _ => {
                         let _ = conn.respond_error(id, -32601, "method not supported").await;
                     }
@@ -281,6 +303,10 @@ impl Agents {
                             session_id: s.id.clone(),
                             request_id,
                         });
+                    }
+                    let questions: Vec<String> = s.questions.lock().drain().map(|(k, _)| k).collect();
+                    for request_id in questions {
+                        self.emitter.emit(Event::QuestionResolved { session_id: s.id.clone(), request_id });
                     }
                     if s.running.load(Ordering::SeqCst) {
                         let tail = stderr_tail.lines().rev().take(8).collect::<Vec<_>>();
@@ -566,6 +592,11 @@ impl Agents {
             let _ = conn.respond(id, json!({"outcome": {"outcome": "cancelled"}})).await;
             self.emitter.emit(Event::PermissionResolved { session_id: s.id.clone(), request_id });
         }
+        let questions: Vec<(String, Value)> = s.questions.lock().drain().collect();
+        for (request_id, id) in questions {
+            let _ = conn.respond(id, json!({"action": "cancel"})).await;
+            self.emitter.emit(Event::QuestionResolved { session_id: s.id.clone(), request_id });
+        }
         let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
         conn.notify("session/cancel", json!({"sessionId": acp_id})).await
     }
@@ -592,6 +623,21 @@ impl Agents {
             session_id: s.id.clone(),
             request_id: request_id.into(),
         });
+        Ok(())
+    }
+
+    /// Answer a question: `response` is `{"action": "accept", "content": {..}}`,
+    /// `{"action": "decline"}` (skip) or `{"action": "cancel"}`.
+    pub async fn answer_question(&self, session_id: &str, request_id: &str, response: Value) -> Result<()> {
+        let s = self.get(session_id)?;
+        let id = s
+            .questions
+            .lock()
+            .remove(request_id)
+            .ok_or_else(|| anyhow!("question already answered"))?;
+        let conn = s.conn.lock().await.clone().ok_or_else(|| anyhow!("agent not connected"))?;
+        conn.respond(id, response).await?;
+        self.emitter.emit(Event::QuestionResolved { session_id: s.id.clone(), request_id: request_id.into() });
         Ok(())
     }
 

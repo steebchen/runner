@@ -29,6 +29,24 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       configOptions[0].currentValue = params.value;
       return send({ id, result: { configOptions } });
     case "session/prompt": {
+      if (params.prompt[0].text.startsWith("ask")) {
+        const qid = nextId++;
+        const reply = new Promise((r) => waiting.set(qid, r));
+        send({
+          id: qid,
+          method: "elicitation/create",
+          params: {
+            mode: "form", sessionId: params.sessionId, message: "Which color?",
+            requestedSchema: { type: "object", properties: {
+              question_0: { type: "string", oneOf: [{ const: "Red", title: "Red" }, { const: "Blue", title: "Blue" }] },
+              question_0_custom: { type: "string", title: "Other" },
+            } },
+          },
+        });
+        const answer = await reply;
+        update({ sessionUpdate: "agent_message_chunk", messageId: "q", content: { type: "text", text: `answer:${JSON.stringify(answer)}` } });
+        return send({ id, result: { stopReason: "end_turn" } });
+      }
       update({ sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "Hello " } });
       update({ sessionUpdate: "agent_message_chunk", messageId: "m1", content: { type: "text", text: "world" } });
       const permId = nextId++;

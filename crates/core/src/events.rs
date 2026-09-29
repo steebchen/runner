@@ -18,6 +18,18 @@ pub enum Event {
     SessionMode { session_id: String, plan: bool },
     PermissionRequest { session_id: String, request_id: String, tool_call: Value, options: Value },
     PermissionResolved { session_id: String, request_id: String },
+    /// The agent asks the user something (ACP form elicitation): `schema` is a
+    /// JSON Schema object whose properties are the questions.
+    Question {
+        session_id: String,
+        request_id: String,
+        message: String,
+        schema: Value,
+        tool_call_id: Option<String>,
+        /// Codex answers on its own after this long.
+        auto_resolve_ms: Option<u64>,
+    },
+    QuestionResolved { session_id: String, request_id: String },
     WorkspaceStatus { workspace_id: String, status: String },
     WorkspaceTitle { workspace_id: String, title: String },
     /// Latest PR for the workspace's branch (`null` if none).

@@ -3,6 +3,14 @@ import { api, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, 
 import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
 
 export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
+export type PendingQuestion = {
+  requestId: string;
+  message: string;
+  schema: any;
+  toolCallId: string | null;
+  autoResolveMs: number | null;
+  receivedAt: number;
+};
 
 export type SessionView = {
   transcript: Transcript;
@@ -10,6 +18,7 @@ export type SessionView = {
   error: string | null;
   config: ConfigOption[];
   permissions: Permission[];
+  questions: PendingQuestion[];
   /** history loaded from disk (or session created in this run) */
   loaded: boolean;
   /** finished a turn while not being looked at */
@@ -24,6 +33,7 @@ const newView = (loaded: boolean): SessionView => ({
   error: null,
   config: [],
   permissions: [],
+  questions: [],
   loaded,
   unread: false,
   plan: false,
@@ -151,6 +161,15 @@ function handleEvents(events: CoreEvent[]) {
           break;
         case "permissionResolved":
           v.permissions = v.permissions.filter((p) => p.requestId !== e.requestId);
+          break;
+        case "question":
+          v.questions = [
+            ...v.questions,
+            { requestId: e.requestId, message: e.message, schema: e.schema, toolCallId: e.toolCallId, autoResolveMs: e.autoResolveMs, receivedAt: Date.now() },
+          ];
+          break;
+        case "questionResolved":
+          v.questions = v.questions.filter((q) => q.requestId !== e.requestId);
           break;
         case "sessionUpdate":
           if (e.update.sessionUpdate === "current_mode_update") {
@@ -381,6 +400,13 @@ export const actions = {
     await guard(api.cancelPrompt(sessionId));
   },
 
+  async answerQuestion(sessionId: string, requestId: string, response: Parameters<typeof api.answerQuestion>[2]) {
+    // Hide immediately; the core confirms with questionResolved.
+    const v = get().views[sessionId];
+    if (v) set({ views: { ...get().views, [sessionId]: { ...v, questions: v.questions.filter((q) => q.requestId !== requestId) } } });
+    await guard(api.answerQuestion(sessionId, requestId, response));
+  },
+
   async respondPermission(sessionId: string, requestId: string, optionId: string | null) {
     await guard(api.respondPermission(sessionId, requestId, optionId));
   },
@@ -412,7 +438,7 @@ export function workspaceActivity(s: State, workspaceId: string): "needs-input" 
   for (const x of list) {
     const v = s.views[x.id];
     if (!v) continue;
-    if (v.permissions.length) return "needs-input";
+    if (v.permissions.length || v.questions.length) return "needs-input";
     if (v.state === "running") result = "running";
     else if (v.state === "error" && result === "idle") result = "error";
     else if (v.unread && result === "idle") result = "unread";
