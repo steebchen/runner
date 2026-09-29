@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Archive, ArchiveRestore, GitBranch, Loader2, Search } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, GitPullRequest, Loader2, Search } from "lucide-react";
+import { prAppearance } from "../lib/pr";
 import { api, type Workspace } from "../lib/api";
 import { actions, useStore } from "../lib/store";
 import { ago } from "../lib/time";
 
 type Filter = "active" | "archived" | "all";
-
 
 /** Every workspace, including archived ones, with archive / restore. */
 export function Home() {
@@ -16,6 +16,8 @@ export function Home() {
   const [filter, setFilter] = useState<Filter>("active");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const prs = useStore((s) => s.prs);
+  const done = active.filter((w) => prs[w.id] && prs[w.id]!.state !== "OPEN");
 
   const refresh = useCallback(() => {
     api
@@ -55,6 +57,20 @@ export function Home() {
       <header className="flex h-13 shrink-0 items-center gap-3 border-b border-border px-5" data-tauri-drag-region>
         <span className="font-medium">Workspaces</span>
         <div className="flex-1" data-tauri-drag-region />
+        {done.length > 0 && (
+          <button
+            onClick={() =>
+              run("bulk", async () => {
+                for (const w of done) await actions.archiveWorkspace(w.id);
+              })
+            }
+            disabled={busy !== null}
+            title={`Archive the workspaces whose pull request was merged or closed:\n${done.map((w) => `• ${w.title || w.name}`).join("\n")}`}
+            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-hover disabled:opacity-50"
+          >
+            {busy === "bulk" ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />} Archive {done.length} merged
+          </button>
+        )}
         <div className="relative">
           <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-faint" />
           <input
@@ -118,6 +134,8 @@ export function Home() {
 function Row({ ws, busy, onRun }: { ws: Workspace; busy: boolean; onRun: (fn: () => Promise<unknown>) => void }) {
   const archived = ws.status === "archived";
   const sessionTitle = useStore((s) => (s.sessions[ws.id] ?? []).find((x) => x.title)?.title ?? "");
+  const pr = useStore((s) => (archived ? undefined : s.prs[ws.id]));
+  const stats = useStore((s) => (archived ? undefined : s.diffStats[ws.id]));
   const open = () => !archived && actions.selectWorkspace(ws.id);
   return (
     <div
@@ -136,6 +154,22 @@ function Row({ ws, busy, onRun }: { ws: Workspace; busy: boolean; onRun: (fn: ()
           <span className="shrink-0">
             {archived && ws.archivedAt ? `archived ${ago(ws.archivedAt)}` : `created ${ago(ws.createdAt)}`}
           </span>
+          {stats && stats.files > 0 && (
+            <>
+              <span className="text-faint">·</span>
+              <span className="shrink-0 font-mono text-[10.5px]">
+                <span className="text-add-fg">+{stats.add}</span> <span className="text-del-fg">−{stats.del}</span>
+              </span>
+            </>
+          )}
+          {pr && (
+            <>
+              <span className="text-faint">·</span>
+              <span className={clsx("flex shrink-0 items-center gap-1", prAppearance(pr).color)}>
+                <GitPullRequest size={10} /> #{pr.number} {prAppearance(pr).label}
+              </span>
+            </>
+          )}
         </div>
       </div>
       {busy ? (
