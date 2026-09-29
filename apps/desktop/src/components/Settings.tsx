@@ -7,6 +7,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { api, type AgentStatus, type Settings as SettingsT } from "../lib/api";
 import { actions, useStore } from "../lib/store";
 import { followTheme, xtermTheme } from "../lib/xtermTheme";
+import { AgentIcon } from "../lib/models";
+import { ModelSettings } from "./ModelSettings";
 
 export function Settings() {
   const settings = useStore((s) => s.settings);
@@ -28,9 +30,15 @@ export function Settings() {
         </button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-8">
+        <div className="mx-auto max-w-3xl px-6 py-8">
           <Section title="Agents" description="Runner drives the agent CLIs you already use, with your existing subscriptions. Nothing is proxied or stored by Runner.">
             <AgentSetup />
+          </Section>
+          <Section title="Default models">
+            <ModelSettings />
+            <Field label="Default to plan mode in new chats" hint="New chats start in plan mode instead of auto-accepting changes. Shift+Tab switches any time.">
+              <Toggle checked={settings.planByDefault} onChange={(planByDefault) => actions.saveSettings({ planByDefault })} />
+            </Field>
           </Section>
           <Section title="Workspaces">
             <Field label="Workspaces folder" hint="New git worktrees are created here, grouped by repository.">
@@ -104,9 +112,8 @@ export function AgentSetup({ compact = false }: { compact?: boolean }) {
 
   const toggle = (id: string, on: boolean) => {
     const enabled = on ? [...new Set([...settings.enabledAgents, id])] : settings.enabledAgents.filter((a) => a !== id);
-    const patch: Partial<SettingsT> = { enabledAgents: enabled };
-    if (!on && settings.defaultAgent === id && enabled.length) patch.defaultAgent = enabled[0];
-    void actions.saveSettings(patch);
+    void actions.saveSettings({ enabledAgents: enabled });
+    if (on) void actions.ensureCatalogs();
   };
 
   return (
@@ -116,22 +123,15 @@ export function AgentSetup({ compact = false }: { compact?: boolean }) {
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <AgentIcon agent={a.id} size={14} />
                 <span className="font-medium">{a.name}</span>
                 {a.version && <span className="text-xs text-faint">v{a.version}</span>}
-                {!compact && settings.defaultAgent === a.id && (
-                  <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">Default</span>
-                )}
               </div>
               <StatusLine status={a} />
             </div>
             <AgentActions status={a} onRun={(title, command) => setRunning({ agentId: a.id, title, command })} />
             {!compact && (
               <>
-                {settings.defaultAgent !== a.id && settings.enabledAgents.includes(a.id) && (
-                  <button onClick={() => actions.saveSettings({ defaultAgent: a.id })} className="rounded px-2 py-1 text-xs text-muted hover:bg-hover hover:text-fg">
-                    Make default
-                  </button>
-                )}
                 <Toggle checked={settings.enabledAgents.includes(a.id)} onChange={(on) => toggle(a.id, on)} />
               </>
             )}

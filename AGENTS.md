@@ -24,12 +24,14 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/store.rs            SQLite (WAL); batched, chunk-merged transcript log
   src/setup.rs            Agent detection (installed / signed in) + Settings
   src/title.rs            Quick heuristic titles + Haiku summaries via `claude -p`
+  src/catalog.rs          Per-agent model/effort catalog, discovered from ACP
+                          configOptions (short discovery session or live sessions)
   src/workspace.rs        runner.json config, workspace naming
   src/env.rs              Login-shell env capture (GUI apps lack the user's PATH)
   src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
                           create -> archive (worktree removed, branch kept) -> restore)
   tests/                  Integration tests with a scripted fake ACP agent
-  examples/               detect.rs, e2e.rs (real agents), title.rs
+  examples/               detect.rs, e2e.rs, catalog.rs, preset.rs (real agents), title.rs
 apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel
 apps/desktop/src/         React 19 UI
   lib/api.ts              Typed wrappers for every Tauri command + event types
@@ -64,6 +66,7 @@ RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p runner-core --test gi
 - **Every spawned process uses `env::tokio_command` / `env::std_command`**, so it gets the user's login-shell PATH.
 - **Events are the only way the UI learns about changes.** Core emits `Event`s; transcript events are persisted and replayed by the same reducer (`transcript.ts`). Add new UI-visible state as an `Event` variant plus a `CoreEvent` type in `api.ts`.
 - **Agent differences live in the core.** The UI renders ACP `configOptions` generically. Agent-specific mapping (e.g. plan vs. bypass modes) goes in `agent.rs`, with unit tests.
+- **Models:** the picker (`ModelPicker.tsx`) shows the user's loadout (`Settings.loadout`, first entry = default for new workspaces) and searches all Claude/Codex models plus the OpenCode models chosen in settings. Picking another agent's model opens a new chat, which replaces the current chat if it's empty. New sessions get model/effort via `Core::create_session(.., model, effort)`, applied on connect.
 - **Permissions:** sessions auto-accept every permission request by default. Plan mode (Shift+Tab in the composer) forwards requests to the user. Agent permission pickers are hidden in the UI.
 - **Platform-specific code stays isolated** (e.g. `open -a` in the Tauri layer), so Linux and Windows remain additive.
 

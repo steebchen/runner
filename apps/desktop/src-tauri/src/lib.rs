@@ -120,8 +120,14 @@ fn list_sessions(app: State<'_, App>, workspace_id: String) -> Res<Vec<Session>>
 }
 
 #[tauri::command]
-async fn create_session(app: State<'_, App>, workspace_id: String, agent_id: String) -> Res<Session> {
-    app.core.create_session(&workspace_id, &agent_id).map_err(err)
+async fn create_session(
+    app: State<'_, App>,
+    workspace_id: String,
+    agent_id: String,
+    model: Option<String>,
+    effort: Option<String>,
+) -> Res<Session> {
+    app.core.create_session(&workspace_id, &agent_id, model, effort).map_err(err)
 }
 
 #[tauri::command]
@@ -198,6 +204,17 @@ async fn pr_status(app: State<'_, App>, workspace_id: String) -> Res<Option<Valu
 #[tauri::command]
 async fn create_pr(app: State<'_, App>, workspace_id: String, title: String, body: String) -> Res<String> {
     app.core.create_pr(&workspace_id, &title, &body).await.map_err(err)
+}
+
+#[tauri::command]
+fn model_catalogs(app: State<'_, App>) -> Value {
+    serde_json::to_value(app.core.catalogs()).unwrap_or_default()
+}
+
+#[tauri::command]
+async fn refresh_catalog(app: State<'_, App>, agent_id: String) -> Res<Value> {
+    let c = app.core.refresh_catalog(&agent_id).await.map_err(err)?;
+    serde_json::to_value(c).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -364,6 +381,8 @@ pub fn run() {
             create_pr,
             merge_pr,
             cached_prs,
+            model_catalogs,
+            refresh_catalog,
             refresh_prs,
             terminal_open,
             terminal_write,

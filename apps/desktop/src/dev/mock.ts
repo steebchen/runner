@@ -29,7 +29,22 @@ const sessions: Record<string, any[]> = {
   w1: [{ id: "s1", workspaceId: "w1", agentId: "claude", acpSessionId: "a1", title: "Add rate limiting to the API", createdAt: 1 }],
   w2: [{ id: "s2", workspaceId: "w2", agentId: "codex", acpSessionId: "a2", title: "Fix flaky checkout test", createdAt: 1 }],
 };
+const efforts = ["low", "medium", "high", "xhigh", "max"].map((v) => ({ value: v, name: v === "xhigh" ? "Extra high" : v[0].toUpperCase() + v.slice(1) }));
+const catalogs: Record<string, any> = {
+  claude: { models: [{ value: "opus", name: "Opus 5.5" }, { value: "claude-fable-5-1", name: "Fable 5.1" }, { value: "sonnet", name: "Sonnet 5" }, { value: "haiku", name: "Haiku 4.5" }], efforts, hasFast: true, updatedAt: 0 },
+  codex: { models: [{ value: "gpt-6-astra", name: "6 Astra" }, { value: "gpt-6-sol", name: "6 Sol" }, { value: "gpt-6-luna", name: "6 Luna" }], efforts, hasFast: true, updatedAt: 0 },
+  opencode: { models: [{ value: "zai/glm-5.3", name: "Z.ai/GLM-5.3" }, { value: "deepseek/deepseek-v4", name: "DeepSeek/DeepSeek V4" }, { value: "openrouter/aion-3.5", name: "OpenRouter/Aion 3.5" }], efforts: [], hasFast: false, updatedAt: 0 },
+};
 let settings = {
+  loadout: [
+    { agent: "claude", model: "opus", effort: "high" },
+    { agent: "claude", model: "claude-fable-5-1", effort: "high" },
+    { agent: "codex", model: "gpt-6-astra", effort: "high" },
+    { agent: "codex", model: "gpt-6-sol", effort: "xhigh" },
+    { agent: "opencode", model: "zai/glm-5.3", effort: null },
+  ],
+  opencodeModels: ["zai/glm-5.3", "deepseek/deepseek-v4"],
+  planByDefault: false,
   enabledAgents: ["claude", "codex", "opencode"],
   defaultAgent: "claude",
   branchPrefix: "runner/",
@@ -40,7 +55,7 @@ let settings = {
 const config = [
   { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "bypassPermissions", options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan" }, { value: "bypassPermissions", name: "Bypass permissions" }] },
   { id: "model", name: "Model", description: "AI model to use", category: "model", type: "select", currentValue: "opus", options: [{ value: "opus", name: "Opus 5.5" }, { value: "sonnet", name: "Sonnet 5" }] },
-  { id: "effort", name: "Effort", description: "Available effort levels for this model", category: "thought_level", type: "select", currentValue: "high", options: ["low", "medium", "high", "xhigh", "max"].map((v) => ({ value: v, name: v[0].toUpperCase() + v.slice(1) })) },
+  { id: "effort", name: "Effort", description: "Available effort levels for this model", category: "thought_level", type: "select", currentValue: "high", options: efforts },
   { id: "fast", name: "Fast mode", description: "Faster responses on supported models", category: "model_config", type: "select", currentValue: "off", options: [{ value: "on", name: "On" }, { value: "off", name: "Off" }] },
 ];
 
@@ -166,6 +181,11 @@ const handlers: Record<string, (a: any) => any> = {
     w2: { number: 38, url: "https://github.com/acme/web/pull/38", state: "MERGED", title: "Fix flaky checkout test", isDraft: false, mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN", statusCheckRollup: [{ name: "ci", conclusion: "SUCCESS" }] },
   }),
   refresh_prs: () => {},
+  model_catalogs: () => catalogs,
+  refresh_catalog: async (a) => {
+    await sleep(300);
+    return catalogs[a.agentId];
+  },
   rename_workspace: (a) => {
     const ws = workspaces.find((w) => w.id === a.workspaceId);
     if (ws) ws.title = a.title;

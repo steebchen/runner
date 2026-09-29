@@ -63,6 +63,8 @@ struct LiveSession {
     /// updates as the agent leaving plan mode.
     applying_mode: AtomicBool,
     config: Mutex<Value>,
+    /// Model and effort to apply once a brand-new ACP session exists.
+    initial: Mutex<Option<(Option<String>, Option<String>)>>,
 }
 
 pub struct Agents {
@@ -115,6 +117,7 @@ impl Agents {
             plan: AtomicBool::new(false),
             applying_mode: AtomicBool::new(false),
             config: Mutex::new(json!([])),
+            initial: Mutex::new(None),
         });
         Ok(self.sessions.lock().entry(session.id.clone()).or_insert(live).clone())
     }
@@ -198,6 +201,7 @@ impl Agents {
                 conn.mark(REPLAY_DONE);
             }
         }
+        let is_new = response.is_none();
         let response = match response {
             Some(r) => r,
             None => {
@@ -213,6 +217,11 @@ impl Agents {
         };
         if let Some(opts) = response.get("configOptions").filter(|v| v.is_array()) {
             self.set_config_options(s, opts.clone());
+        }
+        if is_new {
+            if let Err(e) = self.apply_initial(s, &conn).await {
+                log::warn!("could not apply initial model: {e:#}");
+            }
         }
         if let Err(e) = self.apply_mode(s, &conn).await {
             log::warn!("could not apply permission mode: {e:#}");
@@ -319,6 +328,9 @@ impl Agents {
     }
 
     fn set_config_options(&self, s: &LiveSession, opts: Value) {
+        if let Some(catalog) = crate::catalog::from_config(&opts) {
+            crate::catalog::save(&self.store, &s.agent.id, &catalog);
+        }
         *s.config.lock() = opts.clone();
         self.emitter.emit(Event::SessionConfig { session_id: s.id.clone(), config_options: opts });
     }
@@ -371,6 +383,49 @@ impl Agents {
         }
         s.applying_mode.store(false, Ordering::SeqCst);
         result
+    }
+
+    /// Choose model, effort and plan mode for a session before it connects.
+    pub fn preset(&self, session_id: &str, plan: bool, model: Option<String>, effort: Option<String>) -> Result<()> {
+        let s = self.get(session_id)?;
+        s.plan.store(plan, Ordering::SeqCst);
+        *s.initial.lock() = Some((model, effort));
+        if plan {
+            self.emitter.emit(Event::SessionMode { session_id: s.id.clone(), plan });
+        }
+        Ok(())
+    }
+
+    async fn apply_initial(&self, s: &LiveSession, conn: &AcpConnection) -> Result<()> {
+        let Some((model, effort)) = s.initial.lock().take() else { return Ok(()) };
+        let acp_id = s.acp_session_id.lock().clone().unwrap_or_default();
+        // Model first: the available effort levels can depend on it.
+        for (is_model, want) in [(true, model), (false, effort)] {
+            let Some(want) = want else { continue };
+            let change = {
+                let config = s.config.lock();
+                let option = if is_model {
+                    crate::catalog::model_option(&config)
+                } else {
+                    crate::catalog::effort_option(&config)
+                };
+                option.and_then(|o| {
+                    let valid = crate::catalog::choices(o).iter().any(|c| c.value == want);
+                    (valid && o["currentValue"] != want.as_str()).then(|| o["id"].as_str().unwrap_or("").to_string())
+                })
+            };
+            let Some(config_id) = change else { continue };
+            let r = conn
+                .request(
+                    "session/set_config_option",
+                    json!({"sessionId": acp_id, "configId": config_id, "value": want}),
+                )
+                .await?;
+            if let Some(opts) = r.get("configOptions").filter(|v| v.is_array()) {
+                self.set_config_options(s, opts.clone());
+            }
+        }
+        Ok(())
     }
 
     pub async fn set_plan_mode(self: &Arc<Self>, session_id: &str, plan: bool) -> Result<()> {

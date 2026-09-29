@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api, type AgentDef, type AgentStatus, type PrStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
+import { api, type AgentDef, type AgentStatus, type Catalog, type LoadoutEntry, type PrStatus, type Settings, type ConfigOption, type CoreEvent, type PermissionOption, type Repo, type Session, type Workspace } from "./api";
 import { applyEvents, emptyTranscript, type Transcript } from "./transcript";
 
 export type Permission = { requestId: string; toolCall: any; options: PermissionOption[] };
@@ -49,6 +49,8 @@ type State = {
   page: "workspace" | "settings" | "home";
   /** latest PR per workspace; missing = not fetched yet, null = no PR */
   prs: Record<string, PrStatus | null>;
+  /** models/efforts per agent, discovered from the agents themselves */
+  catalogs: Record<string, Catalog>;
 };
 
 export const useStore = create<State>(() => ({
@@ -68,6 +70,7 @@ export const useStore = create<State>(() => ({
   agentStatus: null,
   page: "workspace",
   prs: {},
+  catalogs: {},
 }));
 
 const set = useStore.setState;
@@ -182,15 +185,16 @@ export const actions = {
 
   async init() {
     await api.subscribe(handleEvents);
-    const [agents, repos, workspaces, settings, prs] = await Promise.all([
+    const [agents, repos, workspaces, settings, prs, catalogs] = await Promise.all([
       api.listAgents(),
       api.listRepos(),
       api.listWorkspaces(),
       api.getSettings(),
       api.cachedPrs().catch(() => ({})),
+      api.modelCatalogs().catch(() => ({})),
     ]);
     applyTheme(settings.theme);
-    void actions.detectAgents();
+    void actions.detectAgents().then(() => actions.ensureCatalogs());
     const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
     const sessions: Record<string, Session[]> = {};
     const selectedSession: Record<string, string> = {};
@@ -200,7 +204,7 @@ export const actions = {
     });
     const views: Record<string, SessionView> = {};
     for (const l of lists) for (const x of l) views[x.id] = newView(false);
-    set({ ready: true, prs: prs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
+    set({ ready: true, prs: prs ?? {}, catalogs: catalogs ?? {}, settings, agents, repos, workspaces, sessions, selectedSession, views, selectedWorkspace: workspaces[0]?.id ?? null });
   },
 
   async addRepo(path: string) {
@@ -223,7 +227,9 @@ export const actions = {
     const ws = await guard(api.createWorkspace(repoId));
     if (!ws) return;
     set({ workspaces: [ws, ...get().workspaces], sessions: { ...get().sessions, [ws.id]: [] }, selectedWorkspace: ws.id });
-    await actions.createSession(ws.id, get().settings?.defaultAgent ?? "claude");
+    const first = get().settings?.loadout[0];
+    if (first) await actions.createSession(ws.id, first.agent, first.model, first.effort);
+    else await actions.createSession(ws.id, get().settings?.defaultAgent ?? "claude");
   },
 
   async archiveWorkspace(workspaceId: string) {
@@ -244,6 +250,32 @@ export const actions = {
     set({ settings });
     applyTheme(settings.theme);
     await guard(api.saveSettings(settings));
+  },
+
+  /** Discover models for installed agents we have no catalog for yet. */
+  async ensureCatalogs(force = false) {
+    const s = get();
+    const installed = (s.agentStatus ?? []).filter((a) => a.installed && s.settings?.enabledAgents.includes(a.id));
+    for (const a of installed) {
+      if (!force && get().catalogs[a.id]) continue;
+      const c = await api.refreshCatalog(a.id).catch(() => null);
+      if (c) set({ catalogs: { ...get().catalogs, [a.id]: c } });
+    }
+    actions.seedLoadout();
+  },
+
+  /** First run: feature each agent's current flagship at high effort. */
+  seedLoadout() {
+    const { settings, catalogs } = get();
+    if (!settings || settings.loadout?.length) return;
+    const loadout: LoadoutEntry[] = [];
+    for (const agent of ["claude", "codex"]) {
+      const c = catalogs[agent];
+      if (!c?.models.length) continue;
+      const effort = c.efforts.find((e) => e.value === "high")?.value ?? null;
+      loadout.push({ agent, model: c.models[0].value, effort });
+    }
+    if (loadout.length) void actions.saveSettings({ loadout });
   },
 
   async detectAgents() {
@@ -292,8 +324,8 @@ export const actions = {
     if (sid) actions.selectSession(workspaceId, sid);
   },
 
-  async createSession(workspaceId: string, agentId: string) {
-    const session = await guard(api.createSession(workspaceId, agentId));
+  async createSession(workspaceId: string, agentId: string, model?: string | null, effort?: string | null) {
+    const session = await guard(api.createSession(workspaceId, agentId, model, effort));
     if (!session) return;
     const s = get();
     set({

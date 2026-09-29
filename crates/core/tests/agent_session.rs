@@ -52,16 +52,21 @@ async fn prompt_permission_config_and_resume() {
         })
         .unwrap();
 
-    let session = core.create_session("w", "fake").unwrap();
+    let session = core.create_session("w", "fake", Some("smart".into()), None).unwrap();
     let sid = session.id.clone();
 
-    // Warm-up connects and reports config options before any prompt.
-    wait_for(&log, "config", |e| matches!(e, Event::SessionConfig { .. })).await;
-    core.agents.set_config(&sid, "model", json!("smart")).await.unwrap();
-    wait_for(&log, "updated config", |e| {
+    // Warm-up connects, applies the preset model and reports config options.
+    wait_for(&log, "preset model", |e| {
         matches!(e, Event::SessionConfig { config_options, .. } if config_options[0]["currentValue"] == "smart")
     })
     .await;
+    core.agents.set_config(&sid, "model", json!("fast")).await.unwrap();
+    wait_for(&log, "updated config", |e| {
+        matches!(e, Event::SessionConfig { config_options, .. } if config_options[0]["currentValue"] == "fast")
+    })
+    .await;
+    // Live config also feeds the model catalog.
+    assert_eq!(core.catalogs()["fake"].models.len(), 2);
 
     // Default mode auto-accepts: the agent's permission request never reaches the UI.
     core.agents.prompt(&sid, "do the thing".into()).unwrap();

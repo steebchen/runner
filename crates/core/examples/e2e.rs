@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     let repo = core.add_repo(repo_path).await?;
     let ws = core.create_workspace(&repo.id).await?;
     println!("workspace {} at {}", ws.branch, ws.path);
-    let session = core.create_session(&ws.id, agent)?;
+    let session = core.create_session(&ws.id, agent, None, None)?;
     core.agents.prompt(&session.id, prompt)?;
 
     loop {

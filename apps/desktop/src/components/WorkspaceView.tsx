@@ -5,7 +5,8 @@ import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, enabledAgents, toast, useStore } from "../lib/store";
 import { useShallow } from "zustand/react/shallow";
-import { api, type Session } from "../lib/api";
+import { effortName, findModel, modelName } from "../lib/models";
+import { api, type LoadoutEntry, type Session } from "../lib/api";
 import { Chat } from "./Chat";
 import { ChangesPanel } from "./ChangesPanel";
 import { TerminalPanel } from "./TerminalPanel";
@@ -126,10 +127,15 @@ export function WorkspaceView({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+const NO_LOADOUT: LoadoutEntry[] = [];
+
 function SessionTabs({ workspaceId, activeId }: { workspaceId: string; activeId?: string }) {
   const sessions = useStore((s) => s.sessions[workspaceId]) ?? [];
   const agents = useStore((s) => s.agents);
   const menuAgents = useStore(useShallow(enabledAgents));
+  const loadout = useStore((s) => s.settings?.loadout) ?? NO_LOADOUT;
+  const catalogs = useStore((s) => s.catalogs);
+  const featured = loadout.filter((l) => menuAgents.some((a) => a.id === l.agent));
   return (
     <div className="flex h-9 shrink-0 items-center gap-1 overflow-x-auto overflow-y-hidden border-b border-border px-2">
       {sessions.map((x) => (
@@ -143,7 +149,15 @@ function SessionTabs({ workspaceId, activeId }: { workspaceId: string; activeId?
       <Menu
         label={<Plus size={13} />}
         align="left"
-        items={menuAgents.map((a) => ({ label: a.name, onSelect: () => actions.createSession(workspaceId, a.id) }))}
+        items={[
+          ...featured.map((l) => ({
+            label: `${modelName(l.agent, findModel(catalogs, l.agent, l.model), l.model)} · ${effortName(catalogs, l.agent, l.effort)}`,
+            onSelect: () => actions.createSession(workspaceId, l.agent, l.model, l.effort),
+          })),
+          ...menuAgents
+            .filter((a) => !featured.some((l) => l.agent === a.id))
+            .map((a) => ({ label: a.name, onSelect: () => actions.createSession(workspaceId, a.id) })),
+        ]}
       />
     </div>
   );

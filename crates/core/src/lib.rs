@@ -4,6 +4,7 @@
 
 pub mod acp;
 pub mod agent;
+pub mod catalog;
 pub mod env;
 pub mod events;
 pub mod forge;
@@ -305,7 +306,15 @@ impl Core {
 
     // ---- sessions ----
 
-    pub fn create_session(&self, workspace_id: &str, agent_id: &str) -> Result<Session> {
+    /// New chat. `model`/`effort` are applied once the agent starts; plan
+    /// mode follows the user's default.
+    pub fn create_session(
+        &self,
+        workspace_id: &str,
+        agent_id: &str,
+        model: Option<String>,
+        effort: Option<String>,
+    ) -> Result<Session> {
         self.agents.def(agent_id)?;
         let session = Session {
             id: uuid::Uuid::new_v4().to_string(),
@@ -316,6 +325,7 @@ impl Core {
             created_at: now(),
         };
         self.store.add_session(&session)?;
+        self.agents.preset(&session.id, self.settings().plan_by_default, model, effort)?;
         self.agents.warm_up(&session.id);
         Ok(session)
     }
@@ -323,6 +333,24 @@ impl Core {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         self.agents.close(session_id);
         self.store.delete_session(session_id)
+    }
+
+    // ---- model catalog ----
+
+    pub fn catalogs(&self) -> std::collections::HashMap<String, catalog::Catalog> {
+        self.agents
+            .defs()
+            .into_iter()
+            .filter_map(|d| catalog::load(&self.store, &d.id).map(|c| (d.id, c)))
+            .collect()
+    }
+
+    /// Discover an agent's models by starting it briefly (no prompt is sent).
+    pub async fn refresh_catalog(&self, agent_id: &str) -> Result<catalog::Catalog> {
+        let def = self.agents.def(agent_id)?;
+        let c = catalog::discover(&def).await?;
+        catalog::save(&self.store, agent_id, &c);
+        Ok(c)
     }
 
     // ---- pull requests ----

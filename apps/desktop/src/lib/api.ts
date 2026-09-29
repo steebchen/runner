@@ -28,7 +28,14 @@ export type Session = {
 
 export type AgentDef = { id: string; name: string; command: string; args: string[] };
 
+export type Choice = { value: string; name: string; description?: string | null };
+export type Catalog = { models: Choice[]; efforts: Choice[]; hasFast: boolean; updatedAt: number };
+export type LoadoutEntry = { agent: string; model: string; effort?: string | null };
+
 export type Settings = {
+  loadout: LoadoutEntry[];
+  opencodeModels: string[];
+  planByDefault: boolean;
   enabledAgents: string[];
   defaultAgent: string;
   branchPrefix: string;
@@ -112,7 +119,10 @@ export const api = {
   repoConfig: (workspaceId: string) =>
     invoke<{ scripts: { setup?: string; run?: string; archive?: string }; copy: string[] }>("repo_config", { workspaceId }),
   listSessions: (workspaceId: string) => invoke<Session[]>("list_sessions", { workspaceId }),
-  createSession: (workspaceId: string, agentId: string) => invoke<Session>("create_session", { workspaceId, agentId }),
+  createSession: (workspaceId: string, agentId: string, model?: string | null, effort?: string | null) =>
+    invoke<Session>("create_session", { workspaceId, agentId, model: model ?? null, effort: effort ?? null }),
+  modelCatalogs: () => invoke<Record<string, Catalog>>("model_catalogs"),
+  refreshCatalog: (agentId: string) => invoke<Catalog>("refresh_catalog", { agentId }),
   deleteSession: (sessionId: string) => invoke<void>("delete_session", { sessionId }),
   sessionEvents: (sessionId: string) => invoke<CoreEvent[]>("session_events", { sessionId }),
   sendPrompt: (sessionId: string, text: string) => invoke<void>("send_prompt", { sessionId, text }),

@@ -9,9 +9,24 @@ use serde_json::Value;
 
 use crate::env::tokio_command;
 
+/// A featured model in the picker: which agent, which model, which effort.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadoutEntry {
+    pub agent: String,
+    pub model: String,
+    #[serde(default)]
+    pub effort: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
+    /// Featured models, in order. The first one is the default for new chats.
+    pub loadout: Vec<LoadoutEntry>,
+    /// OpenCode models offered in the picker (it has hundreds).
+    pub opencode_models: Vec<String>,
+    pub plan_by_default: bool,
     pub enabled_agents: Vec<String>,
     pub default_agent: String,
     pub branch_prefix: String,
@@ -25,6 +40,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            loadout: Vec::new(),
+            opencode_models: Vec::new(),
+            plan_by_default: false,
             enabled_agents: vec!["claude".into(), "codex".into(), "opencode".into()],
             default_agent: "claude".into(),
             branch_prefix: "runner/".into(),

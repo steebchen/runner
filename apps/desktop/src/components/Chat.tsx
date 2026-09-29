@@ -7,8 +7,10 @@ import type { Item } from "../lib/transcript";
 import type { ConfigOption, SelectOption } from "../lib/api";
 import { Markdown } from "./Markdown";
 import { ToolCallCard } from "./ToolCallCard";
+import { ModelPicker, cycleEffort, toggleFast } from "./ModelPicker";
+import { effortOption, fastOption, modelOption } from "../lib/models";
 
-export function Chat({ sessionId }: { sessionId: string; workspaceId: string }) {
+export function Chat({ sessionId, workspaceId }: { sessionId: string; workspaceId: string }) {
   const items = useStore((s) => s.views[sessionId]?.transcript.items) ?? EMPTY;
   const state = useStore((s) => s.views[sessionId]?.state ?? "disconnected");
   const loaded = useStore((s) => s.views[sessionId]?.loaded ?? false);
@@ -62,7 +64,7 @@ export function Chat({ sessionId }: { sessionId: string; workspaceId: string }) 
         {permissions.map((p) => (
           <PermissionPrompt key={p.requestId} sessionId={sessionId} permission={p} />
         ))}
-        <Composer sessionId={sessionId} />
+        <Composer sessionId={sessionId} workspaceId={workspaceId} />
       </div>
     </div>
   );
@@ -174,14 +176,19 @@ function PermissionPrompt({ sessionId, permission }: { sessionId: string; permis
   );
 }
 
-function Composer({ sessionId }: { sessionId: string }) {
+function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: string }) {
+  const agentId = useStore((s) => (s.sessions[workspaceId] ?? []).find((x) => x.id === sessionId)?.agentId ?? "claude");
   const draft = useStore((s) => s.drafts[sessionId] ?? "");
   const state = useStore((s) => s.views[sessionId]?.state ?? "disconnected");
   const config = useStore((s) => s.views[sessionId]?.config) ?? EMPTY_CONFIG;
   const usage = useStore((s) => s.views[sessionId]?.transcript.usage);
   const plan = useStore((s) => s.views[sessionId]?.plan ?? false);
   // Permission modes are replaced by Runner's plan / auto-accept toggle.
-  const visibleConfig = config.filter((c) => c.category !== "mode" && c.id !== "mode" && c.id !== "collaboration_mode");
+  // Model, effort and fast live in the model picker.
+  const picked = new Set([modelOption(config), effortOption(config), fastOption(config)].filter(Boolean));
+  const visibleConfig = config.filter(
+    (c) => c.category !== "mode" && c.id !== "mode" && c.id !== "collaboration_mode" && !picked.has(c),
+  );
   const ref = useRef<HTMLTextAreaElement>(null);
   const running = state === "running";
 
@@ -210,7 +217,13 @@ function Composer({ sessionId }: { sessionId: string }) {
         value={draft}
         onChange={(e) => actions.setDraft(sessionId, e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Tab" && e.shiftKey) {
+          if (e.metaKey && e.shiftKey && (e.key === "/" || e.key === "?")) {
+            e.preventDefault();
+            cycleEffort(sessionId, config);
+          } else if (e.metaKey && e.shiftKey && e.key.toLowerCase() === "e") {
+            e.preventDefault();
+            toggleFast(sessionId, config);
+          } else if (e.key === "Tab" && e.shiftKey) {
             e.preventDefault();
             void actions.togglePlan(sessionId);
           } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -242,6 +255,7 @@ function Composer({ sessionId }: { sessionId: string }) {
           <kbd className="ml-0.5 font-sans font-normal text-faint">⇧⇥</kbd>
         </button>
         <span className="mx-0.5 h-3.5 w-px bg-border" />
+        <ModelPicker sessionId={sessionId} workspaceId={workspaceId} agentId={agentId} config={config} />
         {visibleConfig.map((c) => (
           <ConfigControl key={c.id} sessionId={sessionId} option={c} />
         ))}
