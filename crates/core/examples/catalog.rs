@@ -1,9 +1,9 @@
-//! cargo run -p runner-core --example catalog: discover each agent's models.
+//! cargo run -p suneiro-core --example catalog: discover each agent's models.
 #[tokio::main]
 async fn main() {
-    for def in runner_core::builtin_agents() {
+    for def in suneiro_core::builtin_agents() {
         let t = std::time::Instant::now();
-        match runner_core::catalog::discover(&def).await {
+        match suneiro_core::catalog::discover(&def).await {
             Ok(c) => println!(
                 "{}: {} models (e.g. {:?}), efforts {:?}, fast={} ({:.1}s)",
                 def.id,

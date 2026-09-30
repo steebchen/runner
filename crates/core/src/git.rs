@@ -433,7 +433,7 @@ pub async fn checkpoint(wt: &Path, refname: &str) -> Result<String> {
     // Stage everything into a copy of the real index, so unchanged files
     // keep their cached stat info and big repos stay fast.
     let index = git(wt, &["rev-parse", "--path-format=absolute", "--git-path", "index"]).await?;
-    let tmp = std::env::temp_dir().join(format!("runner-index-{}", uuid::Uuid::new_v4()));
+    let tmp = std::env::temp_dir().join(format!("suneiro-index-{}", uuid::Uuid::new_v4()));
     let _ = tokio::fs::copy(index.trim(), &tmp).await;
     let with_index = |args: &'static [&'static str]| {
         let mut cmd = tokio_command("git");
@@ -454,7 +454,7 @@ pub async fn checkpoint(wt: &Path, refname: &str) -> Result<String> {
     .await;
     let _ = tokio::fs::remove_file(&tmp).await;
     let tree = result?;
-    let commit = git(wt, &["commit-tree", &tree, "-p", &head, "-m", "runner checkpoint"]).await?.trim().to_string();
+    let commit = git(wt, &["commit-tree", &tree, "-p", &head, "-m", "suneiro checkpoint"]).await?.trim().to_string();
     git(wt, &["update-ref", refname, &commit]).await?;
     Ok(commit)
 }

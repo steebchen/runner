@@ -1,7 +1,7 @@
-//! Print what Runner detects about locally installed agents.
+//! Print what Suneiro detects about locally installed agents.
 #[tokio::main]
 async fn main() {
     for id in ["claude", "codex", "opencode"] {
-        println!("{:#?}", runner_core::setup::detect(id).await);
+        println!("{:#?}", suneiro_core::setup::detect(id).await);
     }
 }

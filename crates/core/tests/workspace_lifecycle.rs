@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use runner_core::{git, Core};
+use suneiro_core::{git, Core};
 
 async fn wait_status(core: &Core, id: &str, want: &str) {
     for _ in 0..200 {

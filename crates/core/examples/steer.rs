@@ -1,14 +1,14 @@
-//! cargo run -p runner-core --example steer -- <repo> <agent>
+//! cargo run -p suneiro-core --example steer -- <repo> <agent>
 //! Starts a slow turn, steers a second instruction into it, prints the reply.
 use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use runner_core::{Core, Event};
+use suneiro_core::{Core, Event};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let a: Vec<String> = std::env::args().skip(1).collect();
     let data = tempfile::tempdir()?;
     let events: Arc<Mutex<Vec<Event>>> = Arc::default();

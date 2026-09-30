@@ -539,7 +539,7 @@ function Composer({ sessionId, workspaceId }: { sessionId: string; workspaceId: 
   const config = useStore((s) => s.views[sessionId]?.config) ?? EMPTY_CONFIG;
   const usage = useStore((s) => s.views[sessionId]?.transcript.usage);
   const plan = useStore((s) => s.views[sessionId]?.plan ?? false);
-  // Permission modes are replaced by Runner's plan / auto-accept toggle.
+  // Permission modes are replaced by Suneiro's plan / auto-accept toggle.
   // Model, effort and fast live in the model picker.
   const picked = new Set([modelOption(config), effortOption(config), fastOption(config)].filter(Boolean));
   const visibleConfig = config.filter(

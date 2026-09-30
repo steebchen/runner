@@ -7,6 +7,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { AddRepoMenu } from "./components/AddRepoMenu";
 import { PR_TAB } from "./components/PrView";
 import { api } from "./lib/api";
+import { BrandMark } from "./components/BrandMark";
 import { Sidebar } from "./components/Sidebar";
 import { WorkspaceView } from "./components/WorkspaceView";
 import { Toast } from "./components/Toast";
@@ -147,7 +148,8 @@ export function App() {
           <WorkspaceView key={selected} workspaceId={selected} />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-3" data-tauri-drag-region>
-            <div className="text-lg font-medium">{hasRepos ? "No workspace selected" : "Welcome to Runner"}</div>
+            <BrandMark size={64} className="mb-3 text-fg" />
+            <div className="text-lg font-medium">{hasRepos ? "No workspace selected" : "Welcome to Suneiro"}</div>
             <div className="max-w-sm text-center text-muted">
               Run Claude Code, Codex and OpenCode in parallel, each in its own git worktree.
             </div>

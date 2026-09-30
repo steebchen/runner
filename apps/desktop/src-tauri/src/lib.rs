@@ -1,11 +1,11 @@
-//! Tauri bindings over `runner-core`. Keep logic in core; this file only maps
+//! Tauri bindings over `suneiro-core`. Keep logic in core; this file only maps
 //! commands and streams events to the webview.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use runner_core::{AgentDef, Core, Event, Repo, Session, Workspace};
+use suneiro_core::{AgentDef, Core, Event, Repo, Session, Workspace};
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Emitter, Manager, RunEvent, State};
@@ -28,7 +28,7 @@ impl EventBus {
     fn start(self: &Arc<Self>) {
         let bus = self.clone();
         std::thread::Builder::new()
-            .name("runner-event-flush".into())
+            .name("suneiro-event-flush".into())
             .spawn(move || loop {
                 std::thread::sleep(Duration::from_millis(16));
                 let batch = std::mem::take(&mut *bus.queue.lock());
@@ -151,7 +151,7 @@ fn repo_settings(app: State<'_, App>, repo_id: String) -> Res<Value> {
 }
 
 #[tauri::command]
-fn save_repo_settings(app: State<'_, App>, repo_id: String, config: runner_core::workspace::RepoConfig) -> Res<()> {
+fn save_repo_settings(app: State<'_, App>, repo_id: String, config: suneiro_core::workspace::RepoConfig) -> Res<()> {
     app.core.save_repo_settings(&repo_id, &config).map_err(err)
 }
 
@@ -327,7 +327,7 @@ fn get_pricing(app: State<'_, App>) -> Value {
 }
 
 #[tauri::command]
-fn save_pricing(app: State<'_, App>, pricing: runner_core::usage::Pricing) -> Res<()> {
+fn save_pricing(app: State<'_, App>, pricing: suneiro_core::usage::Pricing) -> Res<()> {
     app.core.save_pricing(&pricing).map_err(err)
 }
 
@@ -349,7 +349,7 @@ async fn pr_details(app: State<'_, App>, workspace_id: String) -> Res<Value> {
 
 #[tauri::command]
 async fn fetch_image(url: String) -> Res<String> {
-    runner_core::forge::fetch_image(&url).await.map_err(err)
+    suneiro_core::forge::fetch_image(&url).await.map_err(err)
 }
 
 #[tauri::command]
@@ -412,21 +412,21 @@ fn terminal_kill(app: State<'_, App>, terminal_id: String) {
 }
 
 #[tauri::command]
-fn get_settings(app: State<'_, App>) -> runner_core::setup::Settings {
+fn get_settings(app: State<'_, App>) -> suneiro_core::setup::Settings {
     app.core.settings()
 }
 
 #[tauri::command]
-fn save_settings(app: State<'_, App>, settings: runner_core::setup::Settings) -> Res<()> {
+fn save_settings(app: State<'_, App>, settings: suneiro_core::setup::Settings) -> Res<()> {
     app.core.save_settings(&settings).map_err(err)
 }
 
 #[tauri::command]
-async fn detect_agents() -> Vec<runner_core::setup::AgentStatus> {
+async fn detect_agents() -> Vec<suneiro_core::setup::AgentStatus> {
     let (a, b, c) = tokio::join!(
-        runner_core::setup::detect("claude"),
-        runner_core::setup::detect("codex"),
-        runner_core::setup::detect("opencode"),
+        suneiro_core::setup::detect("claude"),
+        suneiro_core::setup::detect("codex"),
+        suneiro_core::setup::detect("opencode"),
     );
     [a, b, c].into_iter().flatten().collect()
 }
@@ -469,7 +469,7 @@ fn open_path(path: String, app_name: Option<String>) -> Res<()> {
     status.success().then_some(()).ok_or_else(|| format!("could not open {path}"))
 }
 
-/// Default macOS menus, plus Runner's own items. Custom items emit a "menu"
+/// Default macOS menus, plus Suneiro's own items. Custom items emit a "menu"
 /// event with their id for the UI to handle.
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
@@ -509,7 +509,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+            let data_dir = suneiro_core::storage::data_dir(&app.path().app_data_dir()?);
             let bus = Arc::new(EventBus::default());
             bus.start();
             let sink_bus = bus.clone();

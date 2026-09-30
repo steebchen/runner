@@ -12,7 +12,7 @@ export function openRepoSettings(repoId: string) {
   actions.openSettings(true);
 }
 
-/** Per-repository scripts and files to copy. A committed runner.json (or
+/** Per-repository scripts and files to copy. A committed suneiro.json (or
  * conductor.json) takes precedence per script; these fill the gaps. */
 export function RepoSettings() {
   const repos = useStore((s) => s.repos);
@@ -28,7 +28,7 @@ export function RepoSettings() {
 
 const SCRIPTS: { key: keyof RepoConfig["scripts"]; label: string; hint: string; placeholder: string }[] = [
   { key: "setup", label: "Setup script", hint: "Runs in each new workspace, e.g. to install dependencies.", placeholder: "pnpm install" },
-  { key: "run", label: "Run script", hint: "Started by the Run button in the terminal panel.", placeholder: "pnpm dev --port $RUNNER_PORT" },
+  { key: "run", label: "Run script", hint: "Started by the Run button in the terminal panel.", placeholder: "pnpm dev --port $SUNEIRO_PORT" },
   { key: "archive", label: "Archive script", hint: "Runs before a workspace's worktree is removed.", placeholder: "docker compose down" },
 ];
 
@@ -107,8 +107,8 @@ function RepoCard({ repo }: { repo: Repo }) {
             />
             <div className="mt-1 text-[11px] text-muted">
               Gitignored files copied from the main checkout into new workspaces, one per line. Scripts and terminals get{" "}
-              <span className="font-mono">$RUNNER_ROOT_PATH</span>, <span className="font-mono">$RUNNER_WORKSPACE_PATH</span> and{" "}
-              <span className="font-mono">$RUNNER_PORT</span> (first of 10 ports reserved for the workspace).
+              <span className="font-mono">$SUNEIRO_ROOT_PATH</span>, <span className="font-mono">$SUNEIRO_WORKSPACE_PATH</span> and{" "}
+              <span className="font-mono">$SUNEIRO_PORT</span> (first of 10 ports reserved for the workspace).
             </div>
           </div>
         </div>

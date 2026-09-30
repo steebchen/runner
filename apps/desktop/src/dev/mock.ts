@@ -19,11 +19,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
 const workspaces = [
-  { id: "w1", repoId: "r1", name: "tokyo", branch: "runner/tokyo", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null, unread: false },
-  { id: "w2", repoId: "r1", name: "lisbon", branch: "runner/lisbon", baseBranch: "main", path: "/Users/dev/runner/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null, unread: false },
+  { id: "w1", repoId: "r1", name: "tokyo", branch: "suneiro/tokyo", baseBranch: "main", path: "/Users/dev/suneiro/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null, unread: false },
+  { id: "w2", repoId: "r1", name: "lisbon", branch: "suneiro/lisbon", baseBranch: "main", path: "/Users/dev/suneiro/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null, unread: false },
 ];
 const archived: any[] = [
-  { id: "w9", repoId: "r1", name: "oslo", branch: "runner/oslo", baseBranch: "main", path: "/tmp/oslo", status: "archived", createdAt: Date.now() - 9 * 86400e3, title: "Migrate to Postgres 17", archivedAt: Date.now() - 2 * 86400e3 },
+  { id: "w9", repoId: "r1", name: "oslo", branch: "suneiro/oslo", baseBranch: "main", path: "/tmp/oslo", status: "archived", createdAt: Date.now() - 9 * 86400e3, title: "Migrate to Postgres 17", archivedAt: Date.now() - 2 * 86400e3 },
 ];
 const sessions: Record<string, any[]> = {
   w1: [{ id: "s1", workspaceId: "w1", agentId: "claude", acpSessionId: "a1", title: "Add rate limiting to the API", createdAt: 1 }],
@@ -47,8 +47,8 @@ let settings = {
   planByDefault: false,
   enabledAgents: ["claude", "codex", "opencode"],
   defaultAgent: "claude",
-  branchPrefix: "runner/",
-  workspacesRoot: "/Users/dev/runner/workspaces",
+  branchPrefix: "suneiro/",
+  workspacesRoot: "/Users/dev/suneiro/workspaces",
   editor: "Visual Studio Code",
   theme: "system",
   renameBranches: true,
@@ -117,7 +117,7 @@ async function streamReply(sessionId: string, text: string, images?: string[]) {
 let pricing: Record<string, any> = {};
 const attachments = new Map<string, string>();
 const mergeState: Record<string, any> = {};
-let repoSettings: any = { scripts: { run: "pnpm dev --port $RUNNER_PORT" }, copy: [".env"] };
+let repoSettings: any = { scripts: { run: "pnpm dev --port $SUNEIRO_PORT" }, copy: [".env"] };
 function usageRows() {
   const rows: any[] = [];
   let seed = 7;
@@ -217,7 +217,7 @@ const handlers: Record<string, (a: any) => any> = {
         ws.title = "Summarized title";
         emit({ type: "workspaceTitle", workspaceId: ws.id, title: ws.title }, { type: "sessionTitle", sessionId: a.sessionId, title: ws.title });
         if (settings.renameBranches && ws.branch.endsWith(ws.name)) {
-          ws.branch = "runner/summarized-title";
+          ws.branch = "suneiro/summarized-title";
           emit({ type: "workspaceBranch", workspaceId: ws.id, branch: ws.branch });
         }
       }, 1500);
@@ -226,7 +226,7 @@ const handlers: Record<string, (a: any) => any> = {
   },
   create_workspace: (a) => {
     const n = workspaces.length + 1;
-    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `runner/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "", archivedAt: null, unread: false };
+    const ws = { id: `w${n}`, repoId: a.repoId, name: `city${n}`, branch: `suneiro/city${n}`, baseBranch: "main", path: `/tmp/city${n}`, status: "creating", createdAt: Date.now(), title: "", archivedAt: null, unread: false };
     workspaces.unshift(ws);
     sessions[ws.id] = [];
     setTimeout(() => {
@@ -312,7 +312,7 @@ const handlers: Record<string, (a: any) => any> = {
       repo: "acme/web",
       pull: {
         number: 42, title: "Add API rate limiting", html_url: "https://github.com/acme/web/pull/42", state: "open", draft: false, merged: false,
-        additions: 46, deletions: 1, changed_files: 2, user, base: { ref: "main" }, head: { ref: "runner/tokyo" },
+        additions: 46, deletions: 1, changed_files: 2, user, base: { ref: "main" }, head: { ref: "suneiro/tokyo" },
         body_html: `<h2>Problem</h2><p>Public endpoints have no rate limiting, so a single client can exhaust the API.</p><h2>Approach</h2><ul><li><strong>Limiter</strong>: token bucket per IP in <code>src/server/limiter.ts</code> (60/min, burst 20)</li><li><strong>Routes</strong>: applied to <code>/api/public</code>, returns <code>429</code> with <code>Retry-After</code></li></ul><ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" checked disabled> Unit tests</li><li class="task-list-item"><input type="checkbox" disabled> Load test in staging</li></ul><h2>Screenshots</h2><p><img src="${img}" alt="agents view"></p><details><summary>Benchmark</summary><pre><code>p50 1.2ms  p99 3.4ms</code></pre></details>`,
       },
       comments: [{ id: 1, user: { login: "reviewer-bot", avatar_url: "" }, created_at: new Date(Date.now() - 3600e3).toISOString(), html_url: "https://github.com/acme/web/pull/42#issuecomment-1", body_html: "<p>Bundle size unchanged ✅</p>" }],
@@ -329,7 +329,7 @@ const handlers: Record<string, (a: any) => any> = {
   connect_session: () => {},
   recent_projects: () => [
     { path: "/Users/dev/projects/obsidian", name: "obsidian", lastUsed: Date.now() },
-    { path: "/Users/dev/projects/runner-e2e-test", name: "runner-e2e-test", lastUsed: Date.now() },
+    { path: "/Users/dev/projects/example-project", name: "example-project", lastUsed: Date.now() },
     { path: "/Users/dev/projects/contracts", name: "contracts", lastUsed: Date.now() },
   ],
   clone_repo: async (a) => {
@@ -369,7 +369,7 @@ const handlers: Record<string, (a: any) => any> = {
   terminal_open: (a) => {
     const out = a.command
       ? `$ ${a.command}\r\n\r\n  \x1b[32mVITE\x1b[0m v8.3.1  ready in 212 ms\r\n\r\n  ➜  Local:   \x1b[36mhttp://localhost:\x1b[1m50120\x1b[22m/\x1b[0m\r\n`
-      : "\x1b[32m➜\x1b[0m tokyo git:(runner/tokyo) ";
+      : "\x1b[32m➜\x1b[0m tokyo git:(suneiro/tokyo) ";
     setTimeout(() => send(a.onData, new TextEncoder().encode(out).buffer), 50);
   },
   setup_terminal_open: (a) => {

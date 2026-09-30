@@ -1,16 +1,16 @@
-//! cargo run -p runner-core --example ask -- <repo> <agent>
+//! cargo run -p suneiro-core --example ask -- <repo> <agent>
 //! Plan-mode chat that asks the agent to question the user; prints the
 //! question schema, answers with the first option of each, prints the reply.
 use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use runner_core::{Core, Event};
+use suneiro_core::{Core, Event};
 use serde_json::{json, Map, Value};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let a: Vec<String> = std::env::args().skip(1).collect();
     let data = tempfile::tempdir()?;
     let events: Arc<Mutex<Vec<Event>>> = Arc::default();

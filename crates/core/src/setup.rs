@@ -47,10 +47,10 @@ impl Default for Settings {
             plan_by_default: false,
             enabled_agents: vec!["claude".into(), "codex".into(), "opencode".into()],
             default_agent: "claude".into(),
-            branch_prefix: "runner/".into(),
+            branch_prefix: "suneiro/".into(),
             workspaces_root: dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
-                .join("runner")
+                .join("suneiro")
                 .join("workspaces")
                 .to_string_lossy()
                 .into_owned(),
@@ -215,6 +215,6 @@ mod tests {
     fn settings_fill_defaults() {
         let s: Settings = serde_json::from_str(r#"{"defaultAgent":"codex"}"#).unwrap();
         assert_eq!(s.default_agent, "codex");
-        assert_eq!(s.branch_prefix, "runner/");
+        assert_eq!(s.branch_prefix, "suneiro/");
     }
 }

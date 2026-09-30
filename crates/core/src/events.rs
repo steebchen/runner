@@ -26,7 +26,7 @@ pub enum Event {
     SessionState { session_id: String, state: String, error: Option<String> },
     SessionConfig { session_id: String, config_options: Value },
     SessionTitle { session_id: String, title: String },
-    /// Runner-level permission mode: plan (agent asks) or auto-accept everything.
+    /// Suneiro-level permission mode: plan (agent asks) or auto-accept everything.
     SessionMode { session_id: String, plan: bool },
     /// A finished turn's usage (cost filled in or estimated when possible).
     Usage { session_id: String, usage: crate::usage::PricedUsage },

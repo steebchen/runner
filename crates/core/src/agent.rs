@@ -206,7 +206,7 @@ impl Agents {
                         // (Claude's AskUserQuestion, Codex's request_user_input).
                         "elicitation": {"form": {}}
                     },
-                    "clientInfo": {"name": "runner", "version": env!("CARGO_PKG_VERSION")}
+                    "clientInfo": {"name": "suneiro", "version": env!("CARGO_PKG_VERSION")}
                 }),
             )
             .await?;
@@ -621,8 +621,8 @@ impl Agents {
         });
     }
 
-    /// Rename a workspace's auto-named branch ("runner/tokyo") after its task
-    /// ("runner/fix-login-bug"), as long as it hasn't been pushed.
+    /// Rename a workspace's auto-named branch ("suneiro/tokyo") after its task
+    /// ("suneiro/fix-login-bug"), as long as it hasn't been pushed.
     async fn name_branch(&self, workspace_id: &str, title: &str) {
         // The worktree may still be checking out.
         let mut waited = 0;

@@ -1,8 +1,8 @@
 //! Real GitHub end-to-end test for PR status tracking. Opt-in, because it
 //! creates PRs and runs CI on a fixture repository:
 //!
-//!   RUNNER_E2E_GH_REPO=steebchen/runner-e2e-test \
-//!     cargo test -p runner-core --test github_e2e -- --ignored --nocapture
+//!   SUNEIRO_E2E_GH_REPO=steebchen/runner-e2e-test \
+//!     cargo test -p suneiro-core --test github_e2e -- --ignored --nocapture
 //!
 //! The fixture's CI fails when a file named `FAIL` exists.
 
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use runner_core::{git, Core, Event};
+use suneiro_core::{git, Core, Event};
 use serde_json::Value;
 
 fn check_state(pr: &Value) -> &'static str {
@@ -49,11 +49,11 @@ async fn wait(
 #[tokio::test]
 #[ignore]
 async fn pr_status_open_failing_merged_closed() {
-    let Ok(gh_repo) = std::env::var("RUNNER_E2E_GH_REPO") else {
-        eprintln!("set RUNNER_E2E_GH_REPO to run");
+    let Ok(gh_repo) = std::env::var("SUNEIRO_E2E_GH_REPO").or_else(|_| std::env::var("RUNNER_E2E_GH_REPO")) else {
+        eprintln!("set SUNEIRO_E2E_GH_REPO to run");
         return;
     };
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let clone = tmp.path().join("repo");
     let status = std::process::Command::new("gh")
@@ -86,7 +86,7 @@ async fn pr_status_open_failing_merged_closed() {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         std::fs::write(Path::new(&w.path).join(file), "e2e\n").unwrap();
-        let url = core.create_pr(&w.id, title, "Created by Runner's e2e test.").await.unwrap();
+        let url = core.create_pr(&w.id, title, "Created by Suneiro's e2e test.").await.unwrap();
         println!("{title}: {url}");
         ws.push(w);
     }

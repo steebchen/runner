@@ -1,4 +1,4 @@
-//! Runner core: repos, git worktree workspaces, ACP agent sessions, terminals
+//! Suneiro core: repos, git worktree workspaces, ACP agent sessions, terminals
 //! and GitHub integration. Deliberately free of any UI framework so it can back
 //! the desktop app, a CLI or a headless daemon.
 
@@ -16,6 +16,7 @@ pub mod setup;
 pub mod title;
 pub mod usage;
 pub mod store;
+pub mod storage;
 pub mod workspace;
 
 use std::path::{Path, PathBuf};
@@ -73,7 +74,7 @@ pub struct Core {
 
 impl Core {
     pub fn new(data_dir: &Path, sink: Sink) -> Result<Arc<Self>> {
-        let store = Arc::new(Store::open(&data_dir.join("runner.sqlite"))?);
+        let store = Arc::new(Store::open(&storage::database_path(data_dir))?);
         let emitter = Emitter { store: store.clone(), sink };
         let agents = Arc::new(Agents::new(store.clone(), emitter.clone()));
         // Warm the login-shell env capture off the UI's critical path.

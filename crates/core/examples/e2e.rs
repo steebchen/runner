@@ -1,12 +1,12 @@
 //! Real end-to-end smoke test: create a workspace for a repo, ask an agent for
 //! a change (auto-approving permissions), print the resulting diff.
 //!
-//!   cargo run -p runner-core --example e2e -- <repo-path> [agent] [prompt]
+//!   cargo run -p suneiro-core --example e2e -- <repo-path> [agent] [prompt]
 use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use runner_core::{Core, Event};
+use suneiro_core::{Core, Event};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

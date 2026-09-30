@@ -1,4 +1,4 @@
-//! cargo run -p runner-core --example image -- <repo> <agent>
+//! cargo run -p suneiro-core --example image -- <repo> <agent>
 //! Attaches a generated image (a solid red square) and asks what color it is.
 //! With a third argument `--image-only`, sends the image without any text.
 use std::sync::Arc;
@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use base64::Engine;
 use parking_lot::Mutex;
-use runner_core::{Core, Event};
+use suneiro_core::{Core, Event};
 
 /// A 64x64 solid red PNG, uncompressed (stored deflate blocks).
 fn red_png() -> Vec<u8> {
@@ -58,7 +58,7 @@ fn red_png() -> Vec<u8> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let a: Vec<String> = std::env::args().skip(1).collect();
     let data = tempfile::tempdir()?;
     let events: Arc<Mutex<Vec<Event>>> = Arc::default();

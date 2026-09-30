@@ -1,5 +1,6 @@
 [package]
-name = "runner-core"
+name = "suneiro-core"
+description = "Suneiro: coding agents, worktrees, and reviews together"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

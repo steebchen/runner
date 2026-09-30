@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use runner_core::{AgentDef, Core, Event, Repo, Workspace};
+use suneiro_core::{AgentDef, Core, Event, Repo, Workspace};
 use serde_json::json;
 
-fn event_log() -> (Arc<Mutex<Vec<Event>>>, runner_core::Sink) {
+fn event_log() -> (Arc<Mutex<Vec<Event>>>, suneiro_core::Sink) {
     let log: Arc<Mutex<Vec<Event>>> = Arc::default();
     let sink_log = log.clone();
     (log, Arc::new(move |e| sink_log.lock().push(e)))
@@ -24,7 +24,7 @@ async fn wait_for(log: &Mutex<Vec<Event>>, what: &str, pred: impl Fn(&Event) -> 
 
 #[tokio::test]
 async fn prompt_permission_config_and_resume() {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let (log, sink) = event_log();
     let core = Core::new(tmp.path(), sink).unwrap();
@@ -112,7 +112,7 @@ async fn prompt_permission_config_and_resume() {
 
 #[tokio::test]
 async fn questions_are_forwarded_and_answered() {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let (log, sink) = event_log();
     let core = Core::new(tmp.path(), sink).unwrap();
@@ -165,7 +165,7 @@ async fn questions_are_forwarded_and_answered() {
 }
 
 async fn fake_core(no_steer: bool) -> (Arc<Core>, Arc<Mutex<Vec<Event>>>, String, tempfile::TempDir) {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let (log, sink) = event_log();
     let core = Core::new(tmp.path(), sink).unwrap();
@@ -238,16 +238,16 @@ async fn without_steering_the_turn_is_interrupted() {
 
 #[tokio::test]
 async fn checkpoints_restore_the_worktree_and_tell_the_agent() {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let wt = tmp.path().join("wt");
     std::fs::create_dir(&wt).unwrap();
     for args in [&["init", "-q", "-b", "main"][..], &["config", "user.email", "t@t"], &["config", "user.name", "t"]] {
-        runner_core::git::git(&wt, args).await.unwrap();
+        suneiro_core::git::git(&wt, args).await.unwrap();
     }
     std::fs::write(wt.join("a.txt"), "a\n").unwrap();
-    runner_core::git::git(&wt, &["add", "."]).await.unwrap();
-    runner_core::git::git(&wt, &["commit", "-qm", "init"]).await.unwrap();
+    suneiro_core::git::git(&wt, &["add", "."]).await.unwrap();
+    suneiro_core::git::git(&wt, &["commit", "-qm", "init"]).await.unwrap();
 
     let (log, sink) = event_log();
     let core = Core::new(&tmp.path().join("data"), sink).unwrap();
@@ -305,12 +305,12 @@ async fn checkpoints_restore_the_worktree_and_tell_the_agent() {
 
 #[tokio::test]
 async fn unpushed_branch_is_named_after_the_task() {
-    std::env::set_var("RUNNER_NO_AI_TITLES", "1");
+    std::env::set_var("SUNEIRO_NO_AI_TITLES", "1");
     let tmp = tempfile::tempdir().unwrap();
     let wt = tmp.path().join("wt");
     std::fs::create_dir(&wt).unwrap();
     for args in [&["init", "-q", "-b", "runner/tokyo"][..], &["config", "user.email", "t@t"], &["config", "user.name", "t"], &["commit", "-q", "--allow-empty", "-m", "init"]] {
-        runner_core::git::git(&wt, args).await.unwrap();
+        suneiro_core::git::git(&wt, args).await.unwrap();
     }
     let (log, sink) = event_log();
     let core = Core::new(&tmp.path().join("data"), sink).unwrap();
@@ -346,6 +346,6 @@ async fn unpushed_branch_is_named_after_the_task() {
     };
     assert_eq!(branch, "runner/fix-the-login-bug");
     assert_eq!(core.store.workspace("w").unwrap().branch, branch);
-    assert_eq!(runner_core::git::git(&wt, &["branch", "--show-current"]).await.unwrap().trim(), branch);
+    assert_eq!(suneiro_core::git::git(&wt, &["branch", "--show-current"]).await.unwrap().trim(), branch);
     core.shutdown();
 }

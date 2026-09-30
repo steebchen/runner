@@ -103,7 +103,7 @@ pub fn save(store: &Store, agent_id: &str, catalog: &Catalog) {
 
 /// Start the agent just long enough to read its config options.
 pub async fn discover(def: &AgentDef) -> Result<Catalog> {
-    let dir = std::env::temp_dir().join("runner-catalog");
+    let dir = std::env::temp_dir().join("suneiro-catalog");
     std::fs::create_dir_all(&dir)?;
     let dir: PathBuf = dir.canonicalize().unwrap_or(dir);
     let (conn, _rx) = AcpConnection::spawn(&def.command, &def.args, &dir)?;
@@ -113,7 +113,7 @@ pub async fn discover(def: &AgentDef) -> Result<Catalog> {
             json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "clientCapabilities": {"fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false},
-                "clientInfo": {"name": "runner", "version": env!("CARGO_PKG_VERSION")}
+                "clientInfo": {"name": "suneiro", "version": env!("CARGO_PKG_VERSION")}
             }),
         )
         .await?;

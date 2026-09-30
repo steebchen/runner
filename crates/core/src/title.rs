@@ -66,7 +66,7 @@ fn clean(summary: &str) -> Option<String> {
 /// Ask Claude Haiku for a 2–4 word title. `None` if Claude isn't installed,
 /// isn't signed in, or takes too long.
 pub async fn summarize(text: &str) -> Option<String> {
-    if std::env::var_os("RUNNER_NO_AI_TITLES").is_some() {
+    if std::env::var_os("SUNEIRO_NO_AI_TITLES").is_some() || std::env::var_os("RUNNER_NO_AI_TITLES").is_some() {
         return None;
     }
     let excerpt: String = text.chars().take(2000).collect();

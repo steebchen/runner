@@ -432,7 +432,7 @@ fn migrate(conn: &Connection) -> Result<()> {
 fn spawn_event_writer(mut conn: Connection) -> mpsc::Sender<(String, Value)> {
     let (tx, rx) = mpsc::channel::<(String, Value)>();
     std::thread::Builder::new()
-        .name("runner-event-writer".into())
+        .name("suneiro-event-writer".into())
         .spawn(move || {
             while let Ok(first) = rx.recv() {
                 std::thread::sleep(std::time::Duration::from_millis(50));

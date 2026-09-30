@@ -3001,42 +3001,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "runner-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "dirs 6.0.0",
- "log",
- "parking_lot",
- "portable-pty",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "runner-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "log",
- "parking_lot",
- "runner-core",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tokio",
-]
-
-[[package]]
 name = "rusqlite"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3509,6 +3473,42 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "suneiro-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "dirs 6.0.0",
+ "log",
+ "parking_lot",
+ "portable-pty",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "suneiro-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "suneiro-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tokio",
+]
 
 [[package]]
 name = "swift-rs"

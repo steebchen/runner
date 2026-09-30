@@ -698,7 +698,7 @@ export function workspaceActivity(s: State, workspaceId: string): "needs-input" 
 export function applyTheme(theme: Settings["theme"]) {
   if (theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
-  window.dispatchEvent(new Event("runner-theme"));
+  window.dispatchEvent(new Event("suneiro-theme"));
 }
 
 /** Agents shown in "new chat" menus. */

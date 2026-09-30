@@ -1,11 +1,12 @@
 {
-  "name": "runner",
+  "name": "suneiro",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter desktop tauri dev",
     "build": "pnpm --filter desktop tauri build",
     "typecheck": "pnpm --filter desktop typecheck",
-    "test": "cargo test --workspace"
+    "test": "cargo test --workspace",
+    "icons": "node scripts/generate-icons.mjs"
   },
   "packageManager": "pnpm@10.28.1"
 }

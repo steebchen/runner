@@ -32,7 +32,7 @@ export function Settings() {
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-8">
-          <Section title="Agents" description="Runner drives the agent CLIs you already use, with your existing subscriptions. Nothing is proxied or stored by Runner.">
+          <Section title="Agents" description="Suneiro drives the agent CLIs you already use, with your existing subscriptions. Nothing is proxied or stored by Suneiro.">
             <AgentSetup />
           </Section>
           <Section title="Default models">
@@ -74,7 +74,7 @@ export function Settings() {
           </Section>
           <Section
             title="Repositories"
-            description="Scripts that set up, run and clean up workspaces, and files to copy into them. A runner.json (or conductor.json) committed to the repository takes precedence."
+            description="Scripts that set up, run and clean up workspaces, and files to copy into them. A suneiro.json (or conductor.json) committed to the repository takes precedence."
           >
             <RepoSettings />
           </Section>

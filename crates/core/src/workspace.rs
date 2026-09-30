@@ -1,4 +1,4 @@
-//! Per-repo configuration (`runner.json`, `conductor.json` or app settings),
+//! Per-repo configuration (`suneiro.json`, `runner.json`, `conductor.json` or app settings),
 //! the environment scripts and terminals get, and workspace naming.
 
 use std::path::Path;
@@ -26,7 +26,7 @@ pub struct RepoConfig {
 
 /// Config files looked for in a checkout, in order. `conductor.json` has the
 /// same `scripts` shape, so repos set up for Conductor work as they are.
-pub const CONFIG_FILES: &[&str] = &["runner.json", "conductor.json"];
+pub const CONFIG_FILES: &[&str] = &["suneiro.json", "runner.json", "conductor.json"];
 
 /// The config file committed in a checkout, if any, and its name.
 pub fn load_file_config(dir: &Path) -> Option<(&'static str, RepoConfig)> {
@@ -65,11 +65,11 @@ pub fn port_base(workspace_id: &str) -> u16 {
 }
 
 /// Environment for setup/run/archive scripts and workspace terminals. The
-/// `CONDUCTOR_*` names are set too, for scripts written for Conductor.
+/// `RUNNER_*` and `CONDUCTOR_*` remain aliases for existing repository scripts.
 pub fn script_env(root_path: &str, name: &str, path: &str, workspace_id: &str) -> Vec<(String, String)> {
     let port = port_base(workspace_id).to_string();
     let mut env = Vec::new();
-    for prefix in ["RUNNER", "CONDUCTOR"] {
+    for prefix in ["SUNEIRO", "RUNNER", "CONDUCTOR"] {
         env.push((format!("{prefix}_ROOT_PATH"), root_path.to_string()));
         env.push((format!("{prefix}_WORKSPACE_NAME"), name.to_string()));
         env.push((format!("{prefix}_WORKSPACE_PATH"), path.to_string()));
@@ -165,6 +165,21 @@ mod tests {
         assert_eq!(c.copy, vec![".env"]);
         std::fs::write(dir.path().join("runner.json"), r#"{"copy":[".env.local"]}"#).unwrap();
         assert_eq!(load_file_config(dir.path()).unwrap().0, "runner.json");
+        std::fs::write(dir.path().join("suneiro.json"), r#"{"scripts":{"run":"pnpm start"}}"#).unwrap();
+        let (name, config) = load_file_config(dir.path()).unwrap();
+        assert_eq!(name, "suneiro.json");
+        assert_eq!(config.scripts.run.as_deref(), Some("pnpm start"));
+    }
+
+    #[test]
+    fn script_environment_keeps_legacy_aliases() {
+        let env: std::collections::HashMap<_, _> = script_env("/repo", "athens", "/workspace", "abc").into_iter().collect();
+        for prefix in ["SUNEIRO", "RUNNER", "CONDUCTOR"] {
+            assert_eq!(env[&format!("{prefix}_ROOT_PATH")], "/repo");
+            assert_eq!(env[&format!("{prefix}_WORKSPACE_NAME")], "athens");
+            assert_eq!(env[&format!("{prefix}_WORKSPACE_PATH")], "/workspace");
+            assert_eq!(env[&format!("{prefix}_PORT")], port_base("abc").to_string());
+        }
     }
 
     #[test]

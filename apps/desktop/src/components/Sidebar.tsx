@@ -25,6 +25,7 @@ import { useResizable } from "../lib/resize";
 import { ResizeHandle } from "./ResizeHandle";
 import { actions, formatCost, useStore, workspaceActivity } from "../lib/store";
 import type { PrStatus, Repo, Workspace } from "../lib/api";
+import { BrandMark } from "./BrandMark";
 import { AddRepoMenu } from "./AddRepoMenu";
 import { openRepoSettings } from "./RepoSettings";
 
@@ -47,6 +48,10 @@ export function Sidebar() {
             </button>
           )}
         />
+      </div>
+      <div className="mb-3 flex items-center gap-2 px-4 text-fg" data-tauri-drag-region>
+        <BrandMark size={26} />
+        <span className="suneiro-wordmark text-base">Suneiro</span>
       </div>
       <div className="space-y-0.5 px-2 pb-2">
         <HomeButton />

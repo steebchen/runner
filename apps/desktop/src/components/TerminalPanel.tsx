@@ -149,7 +149,7 @@ export function TerminalPanel({ workspaceId, visible }: { workspaceId: string; v
   }, [active, visible]);
 
   const run = () => {
-    if (!runScript) return toast("Set a run script in Settings → Repositories (or runner.json) to use Run", "info");
+    if (!runScript) return toast("Set a run script in Settings → Repositories (or suneiro.json) to use Run", "info");
     // One run terminal per workspace: running again restarts it.
     const running = entries.find((e) => e.title === "run");
     if (running) close(running);

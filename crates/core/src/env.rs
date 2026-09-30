@@ -9,7 +9,7 @@ use std::time::Duration;
 
 static LOGIN_ENV: OnceLock<HashMap<String, String>> = OnceLock::new();
 
-const MARKER: &str = "__RUNNER_ENV_START__";
+const MARKER: &str = "__SUNEIRO_ENV_START__";
 
 pub fn user_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into())
