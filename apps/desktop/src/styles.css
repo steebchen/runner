@@ -2,11 +2,11 @@
 @import "@xterm/xterm/css/xterm.css";
 
 :root {
-  --bg: #f8f5ed;
-  --panel: #efede5;
-  --elevated: #fffdf8;
-  --hover: #e5e7e3;
-  --border: #d8dcd7;
+  --bg: #ffffff;
+  --panel: #f5f5f5;
+  --elevated: #ffffff;
+  --hover: #ebebeb;
+  --border: #dedede;
   --fg: #20374e;
   --muted: #607080;
   --faint: #89969e;
@@ -17,7 +17,7 @@
   --del-bg: #fdecec;
   --del-fg: #c4302b;
   --warn: #c97a10;
-  --code-bg: #eeeee7;
+  --code-bg: #f3f3f3;
   --syn-keyword: #cf222e;
   --syn-string: #0a3069;
   --syn-title: #8250df;

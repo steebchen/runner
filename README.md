@@ -68,7 +68,7 @@ Suneiro reuses an existing Runner database and attachments in place, keeping sav
 
 ## Brand assets
 
-The source mark is `apps/desktop/public/suneiro-mark.svg`. Run `pnpm icons` after editing it to regenerate the app icon and all desktop bundle formats. The app uses an ink-blue and warm-ivory palette with a matching dark theme; see [DESIGN.md](apps/desktop/DESIGN.md).
+The source mark is `apps/desktop/public/suneiro-mark.svg`. Run `pnpm icons` after editing it to regenerate the app icon and all desktop bundle formats. Light mode uses white and neutral gray surfaces with ink-blue accents, alongside a matching dark theme; see [DESIGN.md](apps/desktop/DESIGN.md).
 
 ## Architecture
 

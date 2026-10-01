@@ -22,4 +22,4 @@ Preserve chat, workspace creation and archiving, diff review, PRs, terminals, se
 
 ## Brand Commitments
 
-The user selected Suneiro and approved wiring it into the product. The selected direction is an intertwined S mark with ink blue, warm ivory and quiet, precise typography. Domain registration and a hosted website are not established by this repository.
+The user selected Suneiro and approved wiring it into the product. The selected direction is an intertwined S mark with ink blue and quiet, precise typography. Light mode uses white with neutral gray supporting surfaces. Domain registration and a hosted website are not established by this repository.
