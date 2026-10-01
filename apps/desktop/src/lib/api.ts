@@ -243,6 +243,10 @@ export const api = {
   terminalKill: (terminalId: string) => invoke<void>("terminal_kill", { terminalId }),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
+  /** Install the latest version if there is one; resolves to the version waiting for a restart. */
+  checkForUpdates: () => invoke<string | null>("check_for_updates"),
+  updateReady: () => invoke<string | null>("update_ready"),
+  restartApp: () => invoke<void>("restart_app"),
   detectAgents: () => invoke<AgentStatus[]>("detect_agents"),
   setupTerminalOpen: (terminalId: string, cols: number, rows: number, command: string, onData: (d: Uint8Array) => void, onExit: () => void) => {
     const dataChannel = new Channel<ArrayBuffer>();

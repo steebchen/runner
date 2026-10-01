@@ -10,6 +10,8 @@ use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{Emitter, Manager, RunEvent, State};
 
+mod updater;
+
 type Res<T> = Result<T, String>;
 
 fn err(e: anyhow::Error) -> String {
@@ -484,8 +486,9 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     for (i, entry) in menu.items()?.into_iter().enumerate() {
         let MenuItemKind::Submenu(sub) = entry else { continue };
         if i == 0 {
-            sub.insert(&PredefinedMenuItem::separator(handle)?, 1)?;
-            sub.insert(&item("settings", "Settings…", "CmdOrCtrl+,")?, 2)?;
+            sub.insert(&MenuItem::with_id(handle, "check-updates", "Check for Updates…", true, None::<&str>)?, 1)?;
+            sub.insert(&PredefinedMenuItem::separator(handle)?, 2)?;
+            sub.insert(&item("settings", "Settings…", "CmdOrCtrl+,")?, 3)?;
         } else if sub.text()? == "File" {
             // Replace "Close Window" (⌘W) with chat-level actions.
             for old in sub.items()? {
@@ -513,6 +516,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updater::Updates::default())
         .setup(|app| {
             let data_dir = suneiro_core::storage::data_dir(&app.path().app_data_dir()?);
             let bus = Arc::new(EventBus::default());
@@ -523,6 +528,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move { poller.start_pr_poller() });
             app.manage(App { core, bus });
             install_menu(app)?;
+            updater::start(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -595,6 +601,9 @@ pub fn run() {
             save_settings,
             detect_agents,
             setup_terminal_open,
+            updater::check_for_updates,
+            updater::update_ready,
+            updater::restart_app,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

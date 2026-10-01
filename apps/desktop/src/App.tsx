@@ -31,6 +31,12 @@ function runCommand(id: string, setPalette: Toggle, setShortcuts?: Toggle) {
   switch (id) {
     case "settings":
       return actions.openSettings(true);
+    case "check-updates":
+      toast("Checking for updates…", "info");
+      return void api
+        .checkForUpdates()
+        .then((v) => (v ? useStore.setState({ updateReady: v }) : toast("Suneiro is up to date", "info")))
+        .catch((e) => toast(`Update failed: ${e}`));
     case "palette":
       return setPalette((o) => !o);
     case "shortcuts":
@@ -87,7 +93,14 @@ export function App() {
     listen<string>("menu", (e) => runCommand(e.payload, setPalette, setShortcuts))
       .then((u) => (unlisten = u))
       .catch(() => {});
-    return () => unlisten?.();
+    let unlistenUpdate: (() => void) | undefined;
+    listen<string>("update-ready", (e) => useStore.setState({ updateReady: e.payload }))
+      .then((u) => (unlistenUpdate = u))
+      .catch(() => {});
+    return () => {
+      unlisten?.();
+      unlistenUpdate?.();
+    };
   }, []);
 
   useEffect(() => {

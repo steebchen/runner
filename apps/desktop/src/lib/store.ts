@@ -88,6 +88,8 @@ type State = {
   pricing: Record<string, ModelPrice>;
   /** repos recently used with coding agents, for "Add repository" */
   recents: { path: string; name: string; lastUsed: number }[];
+  /** version already installed on disk, running after a restart */
+  updateReady: string | null;
 };
 
 export const useStore = create<State>(() => ({
@@ -114,6 +116,7 @@ export const useStore = create<State>(() => ({
   recents: [],
   usage: [],
   pricing: {},
+  updateReady: null,
 }));
 
 const set = useStore.setState;
@@ -316,6 +319,7 @@ export const actions = {
     void actions.detectAgents().then(() => actions.ensureCatalogs());
     void actions.loadRecents();
     void actions.loadUsage();
+    void api.updateReady().then((v) => v && set({ updateReady: v })).catch(() => {});
     const lists = await Promise.all(workspaces.map((w) => api.listSessions(w.id)));
     const sessions: Record<string, Session[]> = {};
     const selectedSession: Record<string, string> = {};

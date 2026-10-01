@@ -112,3 +112,7 @@ Performance notes:
 ## License
 
 Apache-2.0
+
+## Releases and updates
+
+Suneiro updates itself in the background and applies the new version on the next restart. How releases are built, signed and published: [docs/RELEASING.md](docs/RELEASING.md).

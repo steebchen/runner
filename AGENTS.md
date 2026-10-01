@@ -38,7 +38,8 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   tests/                  Integration tests with a scripted fake ACP agent
   examples/               detect.rs, e2e.rs, catalog.rs, preset.rs, ask.rs, steer.rs,
                           usage.rs, image.rs (real agents), recent.rs, title.rs
-apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel
+apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel;
+                          src/updater.rs = silent auto-update
 apps/desktop/src/         React 19 UI
   lib/api.ts              Typed wrappers for every Tauri command + event types
   lib/store.ts            zustand store; handleEvents folds core events per frame
@@ -58,6 +59,7 @@ cargo test --workspace                     # Rust tests
 cargo clippy --workspace --all-targets     # must stay warning-free
 pnpm typecheck                             # TypeScript
 pnpm build                                 # Suneiro.app + .dmg
+pnpm bump 0.2.0                            # set the version everywhere; then tag v0.2.0 to release (docs/RELEASING.md)
 pnpm --filter desktop dev                  # UI only; open http://localhost:1420 (uses dev/mock.ts)
 cargo run -p suneiro-core --example detect  # what agent CLIs/logins Suneiro sees
 cargo run -p suneiro-core --example e2e -- <repo> claude   # real end-to-end run
@@ -75,6 +77,7 @@ SUNEIRO_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p suneiro-core --test 
 - **Models:** the picker (`ModelPicker.tsx`) shows the user's loadout (`Settings.loadout`, first entry = default for new workspaces) and searches all Claude/Codex models plus the OpenCode models chosen in settings. Picking another agent's model opens a new chat, which replaces the current chat if it's empty. New sessions get model/effort via `Core::create_session(.., model, effort)`, applied on connect.
 - **Questions:** Suneiro advertises `elicitation.form`, so agents ask structured questions over ACP `elicitation/create` (Claude's AskUserQuestion, Codex's request_user_input). Questions are never auto-answered. `lib/questions.ts` normalizes both schema styles, `QuestionCard.tsx` walks the user through them, and the answer goes back as `{action: accept|decline|cancel, content}`. Real-agent check: `cargo run -p suneiro-core --example ask -- <repo> claude|codex`.
 - **Menus and shortcuts:** app-level shortcuts are native menu items (`install_menu` in the Tauri crate) that emit a `menu` event; `runCommand` in `App.tsx` handles them, and the same ids are used for the in-page fallbacks.
+- **Updates and releases:** a pushed `v*` tag builds, signs, notarizes and publishes a GitHub release (`.github/workflows/release.yml`, setup in `docs/RELEASING.md`). Release builds poll its `latest.json` and install new versions in the background (`updater.rs`, `tauri-plugin-updater`); the app never restarts itself, the UI offers it after the `update-ready` event (`Sidebar.tsx`). Updater artifacts are only built with `tauri.release.conf.json`, so local builds need no keys.
 - **Usage and cost:** every finished turn stores a `usage` row (tokens, model, cost). Claude/OpenCode report a running cost total per agent process, so a turn's cost is the difference between reports; the first report after a reconnect is compared with what's already recorded, because resumed sessions continue their old total. Codex reports tokens only; estimates are computed at read time from `Settings → Pricing`, so new prices apply retroactively. Real check: `cargo run -p suneiro-core --example usage -- <repo> claude|codex`.
 - **Images:** pasted, picked or dropped images are stored by `attachments.rs` in the app data dir; prompts carry their paths (`Agents::prompt_with`) and send ACP image blocks when the agent advertises `promptCapabilities.image` (otherwise file links). `UserMessage` events keep the paths so history shows thumbnails. Real check: `cargo run -p suneiro-core --example image -- <repo> claude|codex`.
 - **Branch names:** workspaces start on `<prefix><city>`; once the first task gets its (Haiku or heuristic) title, `Agents::name_branch` renames the branch to `<prefix><slug>` unless it was pushed (upstream set or the branch exists on origin) or `Settings.rename_branches` is off, and emits `WorkspaceBranch`.
