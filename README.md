@@ -4,6 +4,11 @@
 
 Run Claude Code, Codex and OpenCode in parallel, each in its own git worktree, then review the diffs and ship PRs from one fast desktop app.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/workspace-dark.png" />
+  <img src="docs/screenshots/workspace-light.png" alt="A Suneiro workspace: the agent chat on the left, the diff of its changes on the right" />
+</picture>
+
 Suneiro uses the agent CLIs you already have and the subscriptions you're already signed in to (Claude Pro/Max, ChatGPT). It never proxies or stores credentials.
 
 ## Features
