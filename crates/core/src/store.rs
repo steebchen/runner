@@ -154,7 +154,8 @@ impl Store {
 
     pub fn add_repo(&self, repo: &Repo) -> Result<()> {
         self.conn.lock().execute(
-            "INSERT INTO repos (id, name, path, default_branch, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO repos (id, name, path, default_branch, created_at, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, (SELECT COALESCE(MAX(position), 0) + 1 FROM repos))",
             params![repo.id, repo.name, repo.path, repo.default_branch, now()],
         )?;
         Ok(())
@@ -183,9 +184,20 @@ impl Store {
     pub fn repos(&self) -> Result<Vec<Repo>> {
         let conn = self.conn.lock();
         let mut stmt =
-            conn.prepare("SELECT id, name, path, default_branch FROM repos ORDER BY name")?;
+            conn.prepare("SELECT id, name, path, default_branch FROM repos ORDER BY position, name")?;
         let rows = stmt.query_map([], row_to_repo)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Store the sidebar order of repos; `ids` lists them first to last.
+    pub fn reorder_repos(&self, ids: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute("UPDATE repos SET position = ?1 WHERE id = ?2", params![i as i64 + 1, id])?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn remove_repo(&self, id: &str) -> Result<()> {
@@ -424,6 +436,8 @@ fn migrate(conn: &Connection) -> Result<()> {
     add_column("workspaces", "unread", "INTEGER NOT NULL DEFAULT 0")?;
     add_column("sessions", "model", "TEXT")?;
     add_column("sessions", "effort", "TEXT")?;
+    // 0 for repos added before ordering existed, which keeps them sorted by name.
+    add_column("repos", "position", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(())
 }
 
@@ -549,5 +563,22 @@ mod tests {
         let events = store.events("s1").unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].pointer("/update/content/text").unwrap(), "ab");
+    }
+
+    #[test]
+    fn repos_keep_their_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("db.sqlite")).unwrap();
+        let names = |s: &Store| s.repos().unwrap().into_iter().map(|r| r.name).collect::<Vec<_>>();
+        for name in ["b", "a", "c"] {
+            store
+                .add_repo(&Repo { id: name.into(), name: name.into(), path: format!("/{name}"), default_branch: "main".into() })
+                .unwrap();
+        }
+        assert_eq!(names(&store), ["b", "a", "c"]);
+        store.reorder_repos(&["c".into(), "b".into(), "a".into()]).unwrap();
+        assert_eq!(names(&store), ["c", "b", "a"]);
+        store.add_repo(&Repo { id: "d".into(), name: "d".into(), path: "/d".into(), default_branch: "main".into() }).unwrap();
+        assert_eq!(names(&store), ["c", "b", "a", "d"]);
     }
 }

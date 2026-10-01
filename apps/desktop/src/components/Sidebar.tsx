@@ -1,9 +1,10 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import {
   Archive,
   ChartColumn,
+  ChevronRight,
   CircleDashed,
   CircleX,
   FolderPlus,
@@ -29,8 +30,84 @@ import { BrandMark } from "./BrandMark";
 import { AddRepoMenu } from "./AddRepoMenu";
 import { openRepoSettings } from "./RepoSettings";
 
+/** Collapsed repo groups (a per-device convenience). */
+function useCollapsed() {
+  const key = "suneiro.collapsedRepos";
+  const [collapsed, setCollapsed] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
+  const toggle = (id: string) => {
+    setCollapsed((c) => {
+      const next = c.includes(id) ? c.filter((x) => x !== id) : [...c, id];
+      localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    });
+  };
+  return { collapsed, toggle };
+}
+
+/**
+ * Reorder repo groups by dragging their header. Uses pointer events rather
+ * than HTML5 drag and drop, which webviews handle inconsistently. `drop` is
+ * the index in the list the dragged repo would be inserted before.
+ */
+function useRepoDrag(listRef: React.RefObject<HTMLDivElement | null>) {
+  const [drag, setDrag] = useState<{ id: string; drop: number } | null>(null);
+  // Set once a press turns into a drag, so the click that follows doesn't toggle the group.
+  const dragged = useRef(false);
+
+  const startDrag = (id: string, e: React.PointerEvent) => {
+    dragged.current = false;
+    if (e.button !== 0 || (e.target as HTMLElement).closest("[data-no-drag]")) return;
+    const startY = e.clientY;
+    let drop = -1;
+    const dropAt = (y: number) => {
+      const groups = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-repo-id]") ?? [])];
+      const index = groups.findIndex((g) => {
+        const r = g.getBoundingClientRect();
+        return y < r.top + r.height / 2;
+      });
+      return index < 0 ? groups.length : index;
+    };
+    const move = (ev: PointerEvent) => {
+      if (!dragged.current && Math.abs(ev.clientY - startY) < 5) return;
+      if (!dragged.current) {
+        dragged.current = true;
+        document.body.style.cursor = "grabbing";
+      }
+      const next = dropAt(ev.clientY);
+      if (next !== drop) setDrag({ id, drop: (drop = next) });
+    };
+    const end = (ev: Event) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("blur", end);
+      document.body.style.cursor = "";
+      setDrag(null);
+      if (dragged.current && ev.type === "pointerup" && drop >= 0) void actions.reorderRepo(id, drop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("blur", end);
+  };
+
+  return { drag, dragged, startDrag };
+}
+
 export function Sidebar() {
   const repos = useStore((s) => s.repos);
+  const { collapsed, toggle } = useCollapsed();
+  const listRef = useRef<HTMLDivElement>(null);
+  const { drag, dragged, startDrag } = useRepoDrag(listRef);
+  const from = drag ? repos.findIndex((r) => r.id === drag.id) : -1;
+  // Dropping right before or after itself leaves the order unchanged: no indicator.
+  const drop = drag && drag.drop !== from && drag.drop !== from + 1 ? drag.drop : -1;
   const { width, ref, onPointerDown } = useResizable("runner.sidebarWidth", 280, 200, 480, "right");
   return (
     <aside
@@ -57,9 +134,20 @@ export function Sidebar() {
         <HomeButton />
         <InsightsButton />
       </div>
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
-        {repos.map((r) => (
-          <RepoGroup key={r.id} repo={r} />
+      <div ref={listRef} className="flex-1 overflow-y-auto px-2 pb-3">
+        {repos.map((r, i) => (
+          <RepoGroup
+            key={r.id}
+            repo={r}
+            collapsed={collapsed.includes(r.id)}
+            dragging={drag?.id === r.id}
+            dropBefore={drop === i}
+            dropAfter={drop === repos.length && i === repos.length - 1}
+            onToggle={() => {
+              if (!dragged.current) toggle(r.id);
+            }}
+            onPointerDown={(e) => startDrag(r.id, e)}
+          />
         ))}
       </div>
       <div className="shrink-0 border-t border-border p-2">
@@ -118,17 +206,47 @@ function InsightsButton() {
   );
 }
 
-function RepoGroup({ repo }: { repo: Repo }) {
+function RepoGroup({
+  repo,
+  collapsed,
+  dragging,
+  dropBefore,
+  dropAfter,
+  onToggle,
+  onPointerDown,
+}: {
+  repo: Repo;
+  collapsed: boolean;
+  dragging: boolean;
+  dropBefore: boolean;
+  dropAfter: boolean;
+  onToggle: () => void;
+  onPointerDown: (e: React.PointerEvent) => void;
+}) {
   const workspaces = useStore((s) => s.workspaces);
   const list = workspaces.filter((w) => w.repoId === repo.id);
   return (
-    <div className="mb-3">
-      <div className="group flex h-7 items-center gap-1 px-2 text-[11px] font-semibold tracking-wide text-muted uppercase">
-        <span className="flex-1 truncate" title={repo.path}>
-          {repo.name}
-        </span>
+    <div data-repo-id={repo.id} className={clsx("relative pb-3", dragging && "opacity-50")}>
+      {(dropBefore || dropAfter) && (
+        <div className={clsx("pointer-events-none absolute inset-x-1 h-0.5 rounded bg-accent", dropBefore ? "-top-px" : "bottom-1")} />
+      )}
+      <div
+        onPointerDown={onPointerDown}
+        className="group flex h-7 items-center gap-1 pr-2 pl-1 text-[11px] font-semibold tracking-wide text-muted uppercase"
+      >
+        <button
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          title={repo.path}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded py-1 text-left tracking-wide uppercase hover:text-fg"
+        >
+          <ChevronRight size={12} className={clsx("shrink-0 text-faint transition-transform", !collapsed && "rotate-90")} />
+          <span className="truncate">{repo.name}</span>
+          {collapsed && list.length > 0 && <span className="font-normal text-faint">{list.length}</span>}
+        </button>
         {list.length === 0 && (
           <button
+            data-no-drag
             onClick={() => actions.removeRepo(repo.id)}
             title="Remove repository"
             className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"
@@ -137,6 +255,7 @@ function RepoGroup({ repo }: { repo: Repo }) {
           </button>
         )}
         <button
+          data-no-drag
           onClick={() => actions.openNewFrom(repo.id)}
           title="New workspace from a branch or pull request (⌘⇧N)"
           className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"
@@ -144,6 +263,7 @@ function RepoGroup({ repo }: { repo: Repo }) {
           <GitBranch size={12} />
         </button>
         <button
+          data-no-drag
           onClick={() => openRepoSettings(repo.id)}
           title="Repository settings (scripts, files to copy)"
           className="hidden rounded p-1 hover:bg-hover hover:text-fg group-hover:block"
@@ -151,6 +271,7 @@ function RepoGroup({ repo }: { repo: Repo }) {
           <SettingsIcon size={12} />
         </button>
         <button
+          data-no-drag
           onClick={() => actions.createWorkspace(repo.id)}
           title="New workspace (⌘N)"
           className="rounded p-1 hover:bg-hover hover:text-fg"
@@ -158,9 +279,7 @@ function RepoGroup({ repo }: { repo: Repo }) {
           <Plus size={13} />
         </button>
       </div>
-      {list.map((w) => (
-        <WorkspaceRow key={w.id} ws={w} index={workspaces.indexOf(w)} />
-      ))}
+      {!collapsed && list.map((w) => <WorkspaceRow key={w.id} ws={w} index={workspaces.indexOf(w)} />)}
     </div>
   );
 }

@@ -163,6 +163,7 @@ export const api = {
   recentProjects: () => invoke<{ path: string; name: string; lastUsed: number }[]>("recent_projects"),
   cloneRepo: (spec: string) => invoke<Repo>("clone_repo", { spec }),
   removeRepo: (repoId: string) => invoke<void>("remove_repo", { repoId }),
+  reorderRepos: (repoIds: string[]) => invoke<void>("reorder_repos", { repoIds }),
   listWorkspaces: () => invoke<Workspace[]>("list_workspaces"),
   createWorkspace: (repoId: string) => invoke<Workspace>("create_workspace", { repoId }),
   createWorkspaceFrom: (repoId: string, branch: string | null, pr: number | null) =>

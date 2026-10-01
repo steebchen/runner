@@ -85,6 +85,11 @@ fn remove_repo(app: State<'_, App>, repo_id: String) -> Res<()> {
 }
 
 #[tauri::command]
+fn reorder_repos(app: State<'_, App>, repo_ids: Vec<String>) -> Res<()> {
+    app.core.store.reorder_repos(&repo_ids).map_err(err)
+}
+
+#[tauri::command]
 fn list_workspaces(app: State<'_, App>) -> Res<Vec<Workspace>> {
     app.core.store.workspaces().map_err(err)
 }
@@ -526,6 +531,7 @@ pub fn run() {
             list_repos,
             add_repo,
             remove_repo,
+            reorder_repos,
             recent_projects,
             clone_repo,
             list_workspaces,

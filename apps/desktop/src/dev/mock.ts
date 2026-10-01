@@ -17,7 +17,11 @@ let events: Channel | null = null;
 const emit = (...batch: any[]) => events && send(events, batch);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const repo = { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" };
+const repos = [
+  { id: "r1", name: "acme-web", path: "/Users/dev/acme-web", defaultBranch: "main" },
+  { id: "r2", name: "acme-api", path: "/Users/dev/acme-api", defaultBranch: "main" },
+  { id: "r3", name: "docs", path: "/Users/dev/docs", defaultBranch: "main" },
+];
 const workspaces = [
   { id: "w1", repoId: "r1", name: "tokyo", branch: "suneiro/tokyo", baseBranch: "main", path: "/Users/dev/suneiro/workspaces/acme-web/tokyo", status: "ready", createdAt: Date.now() - 3 * 3600e3, title: "Add API rate limiting", archivedAt: null, unread: false },
   { id: "w2", repoId: "r1", name: "lisbon", branch: "suneiro/lisbon", baseBranch: "main", path: "/Users/dev/suneiro/workspaces/acme-web/lisbon", status: "ready", createdAt: Date.now() - 26 * 3600e3, title: "", archivedAt: null, unread: false },
@@ -150,7 +154,8 @@ const handlers: Record<string, (a: any) => any> = {
     { id: "codex", name: "Codex", command: "", args: [] },
     { id: "opencode", name: "OpenCode", command: "", args: [] },
   ],
-  list_repos: () => [repo],
+  list_repos: () => repos.map((r) => ({ ...r })),
+  reorder_repos: (a) => void repos.sort((x, y) => a.repoIds.indexOf(x.id) - a.repoIds.indexOf(y.id)),
   list_workspaces: () => workspaces.map((w) => ({ ...w })),
   list_all_workspaces: () => [...workspaces, ...archived].map((w) => ({ ...w })),
   archive_workspace: async (a) => {

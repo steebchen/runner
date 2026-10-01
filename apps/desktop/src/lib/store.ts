@@ -382,7 +382,7 @@ export const actions = {
 
   async repoAdded(repo: Repo) {
     set({ recents: get().recents.filter((r) => r.path !== repo.path) });
-    if (!get().repos.some((r) => r.id === repo.id)) set({ repos: [...get().repos, repo].sort((a, b) => a.name.localeCompare(b.name)) });
+    if (!get().repos.some((r) => r.id === repo.id)) set({ repos: [...get().repos, repo] });
     await actions.createWorkspace(repo.id);
   },
 
@@ -393,6 +393,18 @@ export const actions = {
     }
     await guard(api.removeRepo(repoId));
     set({ repos: get().repos.filter((r) => r.id !== repoId) });
+  },
+
+  /** Move a repo in the sidebar so it sits at `index` of the current list. */
+  async reorderRepo(repoId: string, index: number) {
+    const repos = get().repos;
+    const from = repos.findIndex((r) => r.id === repoId);
+    if (from < 0) return;
+    const next = repos.filter((r) => r.id !== repoId);
+    next.splice(index > from ? index - 1 : index, 0, repos[from]);
+    if (next.every((r, i) => r === repos[i])) return;
+    set({ repos: next });
+    await guard(api.reorderRepos(next.map((r) => r.id)));
   },
 
   async createWorkspace(repoId: string) {

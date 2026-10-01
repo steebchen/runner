@@ -97,6 +97,7 @@ SUNEIRO_E2E_GH_REPO=steebchen/runner-e2e-test cargo test -p suneiro-core --test 
 - Terminals live outside React (`TerminalPanel.tsx` registry) and use xterm's DOM renderer.
 - Styling uses Tailwind v4 with the CSS color tokens in `styles.css`. Support light and dark themes (`data-theme` override or system).
 - `localStorage` is only for per-device conveniences like panel widths. Anything durable goes through core/SQLite.
+- Sidebar repo groups collapse (per device, `localStorage`) and reorder by dragging their header; the order is stored in `repos.position` via `Store::reorder_repos`.
 
 ## Working agreement
 
