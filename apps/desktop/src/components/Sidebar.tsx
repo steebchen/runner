@@ -318,6 +318,7 @@ const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; 
   const [renaming, setRenaming] = useState(false);
   const title = ws.title || sessionTitle;
   const display = title || (ws.status === "creating" ? "New workspace" : ws.name);
+  const showArchive = !renaming && ws.status !== "creating";
 
   return (
     <>
@@ -329,7 +330,7 @@ const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; 
           setMenu({ x: e.clientX, y: e.clientY });
         }}
         className={clsx(
-          "group flex w-full flex-col rounded-md px-2 py-1.5 text-left",
+          "group relative flex w-full flex-col rounded-md px-2 py-1.5 text-left",
           selected ? "bg-hover" : "hover:bg-hover/60",
           menu && !selected && "bg-hover/60",
         )}
@@ -355,17 +356,30 @@ const WorkspaceRow = memo(function WorkspaceRow({ ws, index }: { ws: Workspace; 
               {display}
             </span>
           )}
-          {pr ? (
-            <PrBadge pr={pr} />
-          ) : (
-            index < 9 && <span className="text-[10px] text-faint">⌘{index + 1}</span>
-          )}
+          <span className={clsx("shrink-0", showArchive && "group-hover:invisible")}>
+            {pr ? <PrBadge pr={pr} /> : index < 9 && <span className="text-[10px] text-faint">⌘{index + 1}</span>}
+          </span>
         </div>
         <div className="flex items-center gap-1 pl-4 text-[11px] text-muted">
           <GitBranch size={10} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{ws.status === "creating" ? "Creating worktree…" : ws.branch}</span>
-          <DiffStat workspaceId={ws.id} />
+          <span className={clsx("shrink-0", showArchive && "group-hover:invisible")}>
+            <DiffStat workspaceId={ws.id} />
+          </span>
         </div>
+        {showArchive && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              void actions.archiveWorkspace(ws.id);
+            }}
+            title="Archive"
+            aria-label="Archive workspace"
+            className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded p-1 text-muted group-hover:block hover:bg-hover hover:text-fg"
+          >
+            <Archive size={14} />
+          </button>
+        )}
       </div>
       {menu && (
         <ContextMenu
