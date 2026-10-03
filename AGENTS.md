@@ -18,10 +18,13 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/agent.rs            Agent sessions: spawn, resume, prompt, permissions,
                           plan/auto-accept mode mapping, auto titles
   src/git.rs              git CLI wrappers: worktrees, changed files, diffs
-  src/forge.rs            GitHub via the `gh` CLI (PR list/create/merge); `Core`
-                          polls `gh pr list` once per repo and emits WorkspacePr
+  src/forge.rs            GitHub via the `gh` CLI (PR list/create/merge, PR details
+                          and images for the PR tab); `Core` polls `gh pr list`
+                          once per repo and emits WorkspacePr
   src/pty.rs              Terminals (portable-pty)
+  src/events.rs           `Event`: everything the core reports to the UI
   src/store.rs            SQLite (WAL); batched, chunk-merged transcript log
+  src/storage.rs          Data-dir resolution; reuses legacy Runner data in place
   src/setup.rs            Agent detection (installed / signed in) + Settings
   src/title.rs            Quick heuristic titles + Haiku summaries via `claude -p`
   src/catalog.rs          Per-agent model/effort catalog, discovered from ACP
@@ -36,8 +39,9 @@ crates/core/              Rust core, UI-agnostic (no Tauri dependency)
   src/lib.rs              `Core`: the API the app calls (workspace lifecycle:
                           create -> archive (worktree removed, branch kept) -> restore)
   tests/                  Integration tests with a scripted fake ACP agent
+                          (fake_agent.mjs), workspace lifecycle, GitHub e2e
   examples/               detect.rs, e2e.rs, catalog.rs, preset.rs, ask.rs, steer.rs,
-                          usage.rs, image.rs (real agents), recent.rs, title.rs
+                          usage.rs, image.rs (real agents), recent.rs, title.rs, pr.rs
 apps/desktop/src-tauri/   Thin Tauri 2 layer: commands + one batched event channel;
                           src/updater.rs = silent auto-update
 apps/desktop/src/         React 19 UI
@@ -46,8 +50,12 @@ apps/desktop/src/         React 19 UI
   lib/transcript.ts       Pure reducer: ACP updates -> transcript items
   components/             Sidebar, Home (all workspaces, archive/restore),
                           WorkspaceView, Chat, ChangesPanel, TerminalPanel,
-                          PrActions, Settings, ...
+                          PrActions, PrView, SyncBadge, CommandPalette (⌘K),
+                          Insights (cost/tokens), Settings, ...
   dev/mock.ts             Fake backend for running the UI in a plain browser
+scripts/                  bump.mjs (`pnpm bump`), generate-icons.mjs (`pnpm icons`)
+docs/                     RELEASING.md, README screenshots
+.github/workflows/        release.yml (signed, notarized releases on `v*` tags)
 ```
 
 ## Commands
